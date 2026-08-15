@@ -32,6 +32,11 @@ interface ConnectionRpcInterceptor {
   readonly options: ConnectionRpcHandlerOptions
 }
 
+interface ConnectionRpcChannel {
+  readonly fetchHandler: FetchHandler
+  readonly options: ConnectionRpcHandlerOptions
+}
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
     /** Host Connection transport and RPC registrations. */
@@ -42,6 +47,7 @@ declare module '@deepseek-ai/cordis' {
 /** Host Connection service whose channel registrations belong to the caller fiber. */
 export class HostConnectionService extends Service implements HostConnectionHandle {
   private readonly interceptors = new Map<string, ConnectionRpcInterceptor>()
+  private readonly channels = new Map<string, ConnectionRpcChannel>()
 
   /**
    * Provide the Host half over the active HTTP server.
@@ -87,6 +93,30 @@ export class HostConnectionService extends Service implements HostConnectionHand
     }
   }
 
+  /** Compose a local Fetch carrier after the native shell has established caller authority. */
+  createLocalFetchHandler(fallback: FetchHandler): FetchHandler {
+    const api = this.createSharedFetchHandler(API_PATH, fallback)
+    return {
+      fetch: (request) => {
+        const pathname = new URL(request.url).pathname
+        if (pathname === API_PATH || pathname.startsWith(`${API_PATH}/`)) {
+          const endpoint = endpointFromPath(API_PATH, pathname)
+          const interceptor = this.interceptors.get(API_PATH)
+          if (endpoint !== undefined && interceptor?.matches(endpoint) === true) {
+            return interceptor.fetchHandler.fetch(request)
+          }
+          return api.fetch(request)
+        }
+        for (const [channel, registration] of this.channels) {
+          if (pathname === channel || pathname.startsWith(`${channel}/`)) {
+            return registration.fetchHandler.fetch(request)
+          }
+        }
+        return Promise.resolve(new Response('not found', { status: 404 }))
+      },
+    }
+  }
+
   private register(
     owner: Context,
     channel: string,
@@ -94,24 +124,35 @@ export class HostConnectionService extends Service implements HostConnectionHand
     options: ConnectionRpcHandlerOptions,
   ): () => Promise<void> {
     assertChannel(channel)
-    const trustedHosts = options.authority === 'loopback' ? [] : this.trustedHosts
     const fetchHandler = rpcFetchHandler(channel, handler)
-    const route: WebRoute = {
-      kind: 'prefix',
-      path: channel,
-      handler: async (req, res) => {
-        if (!isTrustedApiRequest(req, trustedHosts)) {
-          res.writeHead(403)
-          res.end('forbidden')
-          return
+    return owner.effect(() => {
+      if (this.channels.has(channel)) {
+        throw new Error(`connection: RPC channel ${JSON.stringify(channel)} already has a handler`)
+      }
+      this.channels.set(channel, { fetchHandler, options })
+      const webServer = owner.get('webServer')
+      let unregisterWeb: (() => void | Promise<void>) | undefined
+      if (webServer !== undefined) {
+        const trustedHosts = options.authority === 'loopback' ? [] : this.trustedHosts
+        const route: WebRoute = {
+          kind: 'prefix',
+          path: channel,
+          handler: async (req, res) => {
+            if (!isTrustedApiRequest(req, trustedHosts)) {
+              res.writeHead(403)
+              res.end('forbidden')
+              return
+            }
+            await bridge(req, res, fetchHandler)
+          },
         }
-        await bridge(req, res, fetchHandler)
-      },
-    }
-    return owner.effect(
-      () => owner.webServer.register(route),
-      `client-connection: ${channel} rpc channel`,
-    )
+        unregisterWeb = webServer.register(route)
+      }
+      return async () => {
+        this.channels.delete(channel)
+        await unregisterWeb?.()
+      }
+    }, `client-connection: ${channel} rpc channel`)
   }
 
   private registerInterceptor(
