@@ -12,6 +12,8 @@ import type { ClientModuleRegistry, WebBootGraph } from '@deepseek-ai/dsh-client
 export interface DesktopHost {
   readonly fetch: (request: Request) => Promise<Response>
   readonly graph: WebBootGraph
+  /** Model-facing tools in the resolved desktop composition. */
+  readonly toolNames: readonly string[]
   clientBundlePath(id: string): string | undefined
   stop(): Promise<void>
 }
@@ -34,10 +36,12 @@ export async function startDesktopHost(): Promise<DesktopHost> {
     const apiProxy = required(ctx, 'apiProxy') as Parameters<typeof toFetchHandler>[0]
     const connection = required(ctx, 'connection') as HostConnectionHandle
     const modules = required(ctx, 'clientModules') as ClientModuleRegistry
+    const tools = required(ctx, 'tools') as { schemas(): readonly { readonly name: string }[] }
     const handler = connection.createLocalFetchHandler(toFetchHandler(apiProxy))
     return {
       fetch: request => handler.fetch(request),
       graph: nativeGraph(modules.graph()),
+      toolNames: tools.schemas().map(tool => tool.name),
       clientBundlePath: id => modules.clientPath(id),
       stop: async () => { await ctx.fiber.dispose() },
     }
