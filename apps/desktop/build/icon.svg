@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="background" x1="160" y1="96" x2="864" y2="928" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#242B3D"/>
+      <stop offset="1" stop-color="#080B12"/>
+    </linearGradient>
+    <filter id="white" color-interpolation-filters="sRGB">
+      <feColorMatrix values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 1 0"/>
+    </filter>
+  </defs>
+  <rect x="32" y="32" width="960" height="960" rx="216" fill="url(#background)"/>
+  <image href="../../web/public/favicon.svg" x="192" y="192" width="640" height="640" filter="url(#white)"/>
+</svg>
