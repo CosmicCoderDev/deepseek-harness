@@ -1,0 +1,405 @@
+/** Native Electron shell with an in-process Host and least-authority IPC carrier. */
+
+import { access, readFile, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import {
+  app, BrowserWindow, clipboard, dialog, ipcMain, Menu, protocol, shell,
+  type IpcMainInvokeEvent, type WebContents,
+} from 'electron'
+import {
+  desktopLogPath,
+  exportDesktopDiagnostics,
+  initializeDesktopDiagnostics,
+  recordDesktopDiagnostic,
+} from './diagnostics.ts'
+import { startDesktopHost, type DesktopHost } from './host.ts'
+import {
+  IPC_ABORT, IPC_BOOT, IPC_FETCH, IPC_STREAM,
+  type DesktopFetchResponse, type DesktopStreamEvent,
+} from './ipc-contract.ts'
+import {
+  isSafeExternalUrl,
+  parseDesktopFetchRequest,
+  parsePluginBundleUrl,
+} from './security.ts'
+import {
+  ollamaConfigurationText,
+  probeOllama,
+  RECOMMENDED_OLLAMA_MODEL,
+} from './onboarding.ts'
+
+const APP_NAME = 'DeepSeek Harness'
+const SMOKE_TEST = process.argv.includes('--smoke-test')
+const ONBOARDING_MARKER = 'desktop-local-model-onboarding-v1'
+
+protocol.registerSchemesAsPrivileged([{
+  scheme: 'dsh-plugin',
+  privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
+}])
+
+let mainWindow: BrowserWindow | undefined
+let host: DesktopHost | undefined
+let stopping = false
+let stopped = false
+const activeRequests = new Map<string, AbortController>()
+
+function installApplicationMenu(): void {
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    { label: APP_NAME, submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
+    { role: 'fileMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
+    {
+      role: 'help',
+      submenu: [
+        {
+          label: 'Local Model Setup / 本地模型设置',
+          click: () => { void showLocalModelSetup(false) },
+        },
+        { type: 'separator' },
+        {
+          label: 'Open Logs Folder / 打开日志目录',
+          click: () => { void openLogsFolder() },
+        },
+        {
+          label: 'Export Diagnostics… / 导出诊断…',
+          click: () => { void saveDiagnostics() },
+        },
+      ],
+    },
+  ]))
+}
+
+function createWindow(reveal = true): BrowserWindow {
+  const window = new BrowserWindow({
+    title: APP_NAME,
+    width: 1440,
+    height: 960,
+    minWidth: 960,
+    minHeight: 640,
+    show: false,
+    backgroundColor: '#f7f8fa',
+    webPreferences: {
+      // Sandboxed preload scripts need a self-contained CommonJS bundle. Electron's
+      // sandboxed `require` cannot follow arbitrary local module imports.
+      preload: fileURLToPath(new URL('./preload.cjs', import.meta.url)),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  })
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    if (isSafeExternalUrl(url)) void shell.openExternal(url)
+    return { action: 'deny' }
+  })
+  window.webContents.on('will-navigate', (event, target) => {
+    if (target.startsWith('file:')) return
+    event.preventDefault()
+    if (isSafeExternalUrl(target)) void shell.openExternal(target)
+  })
+  window.webContents.on('preload-error', (_event, preloadPath, error) => {
+    recordDesktopDiagnostic('error', `preload failed (${preloadPath})`, error)
+  })
+  window.webContents.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
+    if (isMainFrame) recordDesktopDiagnostic('error', `renderer load failed (${code} ${description}): ${url}`)
+  })
+  window.webContents.on('console-message', (details) => {
+    if (details.level === 'warning' || details.level === 'error') {
+      recordDesktopDiagnostic('warn', `[renderer:${details.level}] ${details.sourceId}:${details.lineNumber} ${details.message}`)
+    }
+  })
+  if (reveal) window.once('ready-to-show', () => { window.show() })
+  window.on('closed', () => { mainWindow = undefined })
+  return window
+}
+
+function assertMainSender(senderId: number): void {
+  if (mainWindow === undefined || mainWindow.webContents.id !== senderId) {
+    throw new Error('desktop: rejected IPC from an unknown renderer')
+  }
+}
+
+async function handleFetch(event: IpcMainInvokeEvent, rawRequest: unknown): Promise<DesktopFetchResponse> {
+  assertMainSender(event.sender.id)
+  const request = parseDesktopFetchRequest(rawRequest)
+  if (activeRequests.has(request.id)) throw new Error('desktop: duplicate IPC request id')
+  const controller = new AbortController()
+  activeRequests.set(request.id, controller)
+  try {
+    if (host === undefined) throw new Error('desktop: Host is not ready')
+    const response = await host.fetch(new Request(request.url, {
+      method: request.method,
+      headers: [...request.headers],
+      ...(request.body === undefined ? {} : { body: request.body }),
+      signal: controller.signal,
+    }))
+    const headers = [...response.headers.entries()]
+    if (response.headers.get('content-type')?.startsWith('text/event-stream') === true
+      && response.body !== null) {
+      void pumpStream(event.sender, request.id, response.body, controller)
+      return { status: response.status, headers, stream: true }
+    }
+    const body = new Uint8Array(await response.arrayBuffer())
+    activeRequests.delete(request.id)
+    return { status: response.status, headers, body, stream: false }
+  } catch (error) {
+    activeRequests.delete(request.id)
+    throw error
+  }
+}
+
+async function pumpStream(
+  sender: WebContents,
+  id: string,
+  body: ReadableStream<Uint8Array>,
+  controller: AbortController,
+): Promise<void> {
+  const reader = body.getReader()
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (!sender.isDestroyed()) sendStream(sender, id, { type: 'chunk', data: value })
+    }
+    if (!sender.isDestroyed()) sendStream(sender, id, { type: 'end' })
+  } catch (error) {
+    if (!controller.signal.aborted && !sender.isDestroyed()) {
+      sendStream(sender, id, { type: 'error', message: error instanceof Error ? error.message : String(error) })
+    }
+  } finally {
+    activeRequests.delete(id)
+    await reader.cancel().catch(() => undefined)
+  }
+}
+
+function sendStream(sender: WebContents, id: string, event: DesktopStreamEvent): void {
+  sender.send(IPC_STREAM, id, event)
+}
+
+function installIpc(): void {
+  ipcMain.handle(IPC_FETCH, handleFetch)
+  ipcMain.on(IPC_ABORT, (event, id: unknown) => {
+    assertMainSender(event.sender.id)
+    if (typeof id === 'string') activeRequests.get(id)?.abort()
+  })
+  ipcMain.on(IPC_BOOT, (event) => {
+    assertMainSender(event.sender.id)
+    event.returnValue = host?.graph
+  })
+}
+
+function installPluginProtocol(): void {
+  protocol.handle('dsh-plugin', async (request) => {
+    if (host === undefined) return new Response('Host unavailable', { status: 503 })
+    const target = parsePluginBundleUrl(request.url)
+    if (target === undefined) return new Response('not found', { status: 404 })
+    const bundle = host.clientBundlePath(target.id)
+    if (bundle === undefined) return new Response('not found', { status: 404 })
+    try {
+      const content = await readFile(target.sourceMap ? `${bundle}.map` : bundle)
+      return new Response(content, {
+        headers: { 'content-type': target.sourceMap ? 'application/json' : 'text/javascript; charset=utf-8' },
+      })
+    } catch {
+      return new Response('not found', { status: 404 })
+    }
+  })
+}
+
+function webIndexPath(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'web', 'index.html')
+    : fileURLToPath(new URL('../../web/dist/index.html', import.meta.url))
+}
+
+async function openDesktop(reveal = true): Promise<void> {
+  mainWindow ??= createWindow(reveal)
+  await mainWindow.loadFile(webIndexPath())
+}
+
+async function waitForRenderer(): Promise<void> {
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    if (mainWindow === undefined || mainWindow.isDestroyed()) {
+      throw new Error('desktop: renderer window closed during packaged smoke test')
+    }
+    const ready = await mainWindow.webContents.executeJavaScript(
+      "document.querySelector('#root')?.childElementCount > 0",
+      true,
+    ) as boolean
+    if (ready) return
+    await new Promise((resolvePromise) => { setTimeout(resolvePromise, 250) })
+  }
+  throw new Error('desktop: renderer did not mount during packaged smoke test')
+}
+
+async function stopHost(): Promise<void> {
+  for (const controller of activeRequests.values()) controller.abort()
+  activeRequests.clear()
+  await host?.stop()
+  host = undefined
+}
+
+async function onboardingWasShown(): Promise<boolean> {
+  try {
+    await access(join(app.getPath('userData'), ONBOARDING_MARKER))
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function markOnboardingShown(): Promise<void> {
+  await writeFile(join(app.getPath('userData'), ONBOARDING_MARKER), new Date().toISOString(), 'utf8')
+}
+
+async function showLocalModelSetup(firstRun: boolean): Promise<void> {
+  const probe = await probeOllama()
+  const status = probe.kind === 'ready'
+    ? `已检测到 Ollama 和 ${RECOMMENDED_OLLAMA_MODEL}。\nOllama and ${RECOMMENDED_OLLAMA_MODEL} were detected.`
+    : probe.kind === 'model-missing'
+      ? `已检测到 Ollama，但没有 ${RECOMMENDED_OLLAMA_MODEL}。请先运行：\nollama pull ${RECOMMENDED_OLLAMA_MODEL}\n\nOllama is running, but the recommended model is missing.`
+      : '没有检测到本机 Ollama。请先启动 Ollama。\nLocal Ollama was not detected. Start Ollama first.'
+  recordDesktopDiagnostic('info', `Ollama onboarding probe: ${probe.kind}`)
+  const options = {
+    type: probe.kind === 'ready' ? 'info' as const : 'warning' as const,
+    title: 'Local Model Setup / 本地模型设置',
+    message: status,
+    detail: [
+      '在应用中打开“设置 → 模型 → 添加自定义提供方”，填写以下内容：',
+      'Open “Settings → Models → Add a custom provider” and enter:',
+      '',
+      ollamaConfigurationText(),
+    ].join('\n'),
+    buttons: ['Copy Configuration / 复制配置', 'Close / 关闭'],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+  }
+  const result = mainWindow === undefined
+    ? await dialog.showMessageBox(options)
+    : await dialog.showMessageBox(mainWindow, options)
+  if (result.response === 0) clipboard.writeText(ollamaConfigurationText())
+  if (firstRun) await markOnboardingShown()
+}
+
+async function openLogsFolder(): Promise<void> {
+  const currentLog = desktopLogPath()
+  const path = currentLog === undefined ? app.getPath('logs') : dirname(currentLog)
+  const error = await shell.openPath(path)
+  if (error.length > 0) {
+    recordDesktopDiagnostic('error', 'failed to open logs folder', error)
+    dialog.showErrorBox('DeepSeek Harness', error)
+  }
+}
+
+async function saveDiagnostics(): Promise<void> {
+  const timestamp = new Date().toISOString().replace(/[:.]/gu, '-')
+  const options = {
+    title: 'Export Diagnostics / 导出诊断',
+    defaultPath: join(app.getPath('documents'), `DeepSeek-Harness-diagnostics-${timestamp}.txt`),
+    filters: [{ name: 'Text', extensions: ['txt'] }],
+  }
+  const result = mainWindow === undefined
+    ? await dialog.showSaveDialog(options)
+    : await dialog.showSaveDialog(mainWindow, options)
+  if (result.canceled) return
+  try {
+    await exportDesktopDiagnostics(result.filePath, {
+      version: app.getVersion(),
+      electron: process.versions.electron,
+      chrome: process.versions.chrome,
+      node: process.versions.node,
+      platform: `${process.platform}-${process.arch}`,
+      packaged: String(app.isPackaged),
+    })
+    recordDesktopDiagnostic('info', `diagnostics exported to ${result.filePath}`)
+  } catch (error) {
+    recordDesktopDiagnostic('error', 'failed to export diagnostics', error)
+    dialog.showErrorBox('DeepSeek Harness', error instanceof Error ? error.message : String(error))
+  }
+}
+
+function revealMainWindow(): void {
+  if (mainWindow === undefined || mainWindow.isDestroyed()) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+}
+
+app.setName(APP_NAME)
+const ownsInstance = SMOKE_TEST || app.requestSingleInstanceLock()
+if (!ownsInstance) {
+  app.quit()
+} else {
+  app.on('second-instance', revealMainWindow)
+  app.on('web-contents-created', (_event, contents) => {
+    contents.session.setPermissionRequestHandler((_webContents, _permission, callback) => { callback(false) })
+  })
+  app.on('before-quit', (event) => {
+    if (stopped) return
+    event.preventDefault()
+    if (stopping) return
+    stopping = true
+    void stopHost().finally(() => {
+      stopped = true
+      app.quit()
+    })
+  })
+  app.on('window-all-closed', () => { app.quit() })
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) void openDesktop()
+    else revealMainWindow()
+  })
+
+  void app.whenReady().then(async () => {
+    try {
+      await initializeDesktopDiagnostics(app.getPath('logs'))
+    } catch (error) {
+      console.error('[desktop] diagnostic log initialization failed', error)
+    }
+    installApplicationMenu()
+    process.on('uncaughtExceptionMonitor', (error) => {
+      recordDesktopDiagnostic('error', 'uncaught exception', error)
+    })
+    process.on('unhandledRejection', (error) => {
+      recordDesktopDiagnostic('error', 'unhandled rejection', error)
+    })
+    host = await startDesktopHost()
+    recordDesktopDiagnostic('info', 'in-process Host started')
+    installIpc()
+    installPluginProtocol()
+    await openDesktop(!SMOKE_TEST)
+    if (SMOKE_TEST) {
+      if (host.toolNames.includes('web_search')) {
+        throw new Error('desktop: local-first build unexpectedly exposes web_search')
+      }
+      await waitForRenderer()
+      console.log('[desktop] packaged smoke test passed')
+      mainWindow?.destroy()
+      await stopHost()
+      stopped = true
+      app.quit()
+      return
+    }
+    if (!await onboardingWasShown()) {
+      await showLocalModelSetup(true).catch((error: unknown) => {
+        recordDesktopDiagnostic('warn', 'local model onboarding failed', error)
+      })
+    }
+  }).catch(async (error: unknown) => {
+    const detail = error instanceof Error ? error.stack ?? error.message : String(error)
+    recordDesktopDiagnostic('error', 'startup failed', error)
+    if (SMOKE_TEST) {
+      stopped = true
+      app.exit(1)
+      return
+    }
+    await dialog.showMessageBox({
+      type: 'error',
+      title: `${APP_NAME} failed to start`,
+      message: 'The local DeepSeek Harness Host could not start.',
+      detail,
+    })
+    stopped = true
+    app.quit()
+  })
+}

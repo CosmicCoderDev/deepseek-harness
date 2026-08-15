@@ -1,0 +1,37 @@
+# Native Electron carrier: retain the shared Host and browser plugin roster,
+# remove every listening/HTTP-only row, and mount Connection without Web glue.
+- id: webserver
+  disabled: true
+
+- id: web-runtime
+  disabled: true
+
+- id: client-hmr
+  disabled: true
+
+# A desktop launch always has a local display. Pin both halves of the native
+# picker instead of the Web auto-selector, whose decision requires bind facts.
+- id: directory-picker
+  disabled: true
+
+- insert:
+    - id: desktop-directory-picker
+      name: '@deepseek-ai/dsh-host-directory-picker-native'
+
+    - id: directory-picker-surface
+      name: '@deepseek-ai/dsh-client-ui-directory-picker-native'
+
+- id: connection
+  inject: []
+  config:
+    trustedHosts: []
+
+# The desktop build is local-model-first. The stock Web composition exposes
+# web_search even when its DeepSeek credential is absent, which makes a local
+# model repeatedly call a tool that can only fail. Keep the provider settings
+# available for a future opt-in, but do not advertise search to the model.
+# web_fetch is already disabled by the base composition for SSRF safety.
+- id: tool-web
+  config:
+    search: false
+    fetch: false

@@ -6,6 +6,7 @@ import {
   type ClientRequest,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { ClientConnectionRpc } from '../rpc.ts'
+import { desktopFetch, type DesktopBridge } from './desktop-api-client.ts'
 import { randomUuid } from './random-uuid.ts'
 
 const INTERNAL_BASE = 'http://dsh.internal'
@@ -17,6 +18,22 @@ const ENDPOINT_SEGMENT_PATTERN = /^[A-Za-z0-9_$.-]+$/
  * @returns caller that owns request correlation and response-envelope validation.
  */
 export function createWebConnectionRpc(): ClientConnectionRpc {
+  return createFetchConnectionRpc((input, init) => globalThis.fetch(input, init))
+}
+
+/**
+ * Create the native desktop caller over the preload's IPC Fetch bridge.
+ * @param bridge - context-isolated preload API that carries RPC requests.
+ * @returns caller that owns request correlation and response-envelope validation.
+ */
+export function createDesktopConnectionRpc(bridge: DesktopBridge): ClientConnectionRpc {
+  return createFetchConnectionRpc((input, init) => desktopFetch(bridge, input, init), INTERNAL_BASE)
+}
+
+function createFetchConnectionRpc(
+  fetcher: (input: URL, init?: RequestInit) => Promise<Response>,
+  base?: string,
+): ClientConnectionRpc {
   return {
     async call(channel, endpoint, payload, signal) {
       assertTarget(channel, endpoint)
@@ -27,8 +44,8 @@ export function createWebConnectionRpc(): ClientConnectionRpc {
         method: endpoint,
         payload,
       }
-      const response = await globalThis.fetch(
-        new URL(`${channel}/${endpoint}`, resolveBase()),
+      const response = await fetcher(
+        new URL(`${channel}/${endpoint}`, base ?? resolveBase()),
         {
           method: 'POST',
           headers: { 'content-type': 'application/json' },

@@ -51,6 +51,27 @@ import './base.css'
 export type BootSeams = Pick<ClientModuleSystemOptions, 'loadBundle'>
 
 /**
+ * Read the boot graph from the native preload seam or the Web Host's inert
+ * metadata. Native wins when both exist; Web metadata stays non-executable so
+ * Content Security Policy does not need to permit inline scripts.
+ * @returns the raw boot graph, or `undefined` when neither carrier supplied it.
+ * @throws when Web metadata is not valid Base64-encoded JSON.
+ */
+export function readBootManifestWire(): unknown {
+  const nativeWire = (globalThis as DshWindow).__DSH_BOOT__
+  if (nativeWire !== undefined) return nativeWire
+  const encoded = document.querySelector('meta[name="dsh-boot"]')?.getAttribute('content')
+  if (encoded === null || encoded === undefined) return undefined
+  try {
+    const binary = atob(encoded)
+    const bytes = Uint8Array.from(binary, character => character.charCodeAt(0))
+    return JSON.parse(new TextDecoder().decode(bytes)) as unknown
+  } catch (cause) {
+    throw new Error(`client-web: invalid dsh-boot metadata: ${String(cause)}`, { cause })
+  }
+}
+
+/**
  * The modules package's own graph row id. The kernel adopts that entry
  * itself (its wrapper is statically registered — shell-bundled code, never
  * fetched), so the plugin-row loop must skip it: the vendored Group.create
@@ -95,7 +116,7 @@ export class AppWebEntry {
    * @returns resolves once the UI settled or the failure report rendered.
    */
   async run(): Promise<void> {
-    this.manifest = parseBootManifest((globalThis as DshWindow).__DSH_BOOT__)
+    this.manifest = parseBootManifest(readBootManifestWire())
 
     this.modules = new ClientModuleSystem({
       modules: this.manifest.modules, staticModules: getStaticModules(), ...this.seams,

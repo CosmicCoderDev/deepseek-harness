@@ -1,8 +1,8 @@
 /**
  * Node half of the client module system (`dsh.client` dual-face package): scans
  * the host Loader's entries for packages declaring `dsh.client`, composes the
- * `window.__DSH_BOOT__` entry graph (wire single source: {@link WebBootEntry}
- * in `./client/manifest.ts`), serves `/plugins/<id>/client.js` and its source
+ * boot entry graph (wire single source: {@link WebBootEntry} in
+ * `./client/manifest.ts`), serves `/plugins/<id>/client.js` and its source
  * map, taps the index render to inject the boot manifest, and provides the
  * `clientModuleHost` service (the HMR node half's registration/notification
  * face).
@@ -158,20 +158,20 @@ function graphRow(id: string, rev: string, injectEdges: string[] | undefined, im
 }
 
 /**
- * Inject the boot entry graph into index.html: `window.__DSH_BOOT__` as the
- * first script in <head> (before the shell bundle reads it). `<` is escaped in
- * the JSON so plugin-controlled strings cannot break out of the script element.
+ * Inject the boot entry graph into index.html as inert Base64 metadata before
+ * the shell bundle reads it. The alphabet has no HTML attribute delimiters,
+ * and avoiding executable inline script lets the shell keep a strict CSP.
  * @param html - the index.html source.
  * @param graph - the composed entry graph.
  * @returns the html with the graph script injected.
  */
 export function injectBootManifest(html: string, graph: WebBootGraph): string {
-  const json = JSON.stringify(graph).replaceAll('<', '\\u003c')
-  const script = `<script>window.__DSH_BOOT__ = ${json}</script>`
+  const payload = Buffer.from(JSON.stringify(graph), 'utf8').toString('base64')
+  const metadata = `<meta name="dsh-boot" content="${payload}">`
   const head = html.indexOf('<head>')
-  if (head !== -1) return `${html.slice(0, head + 6)}${script}${html.slice(head + 6)}`
+  if (head !== -1) return `${html.slice(0, head + 6)}${metadata}${html.slice(head + 6)}`
   // Headless fixture pages may lack <head>; prepending keeps the read-before-shell ordering.
-  return `${script}${html}`
+  return `${metadata}${html}`
 }
 
 /**
@@ -182,7 +182,7 @@ export function injectBootManifest(html: string, graph: WebBootGraph): string {
  * boot activation audit reports it).
  */
 export class ClientModuleRegistry extends Service {
-  static inject = ['webServer', 'loader']
+  static inject = ['loader']
 
   private readonly table = new Map<string, WebPluginRecord>()
   // Negative verdicts (unresolvable specifier — builtins like cordis:include,
@@ -238,14 +238,19 @@ export class ClientModuleRegistry extends Service {
       throw new ClientPackageCompositionError(failures)
     }
 
-    ctx.effect(
-      () => ctx.webServer.register({ kind: 'prefix', path: '/plugins', handler: this.serveBundle }),
-      'client-modules: bundle route',
-    )
-    ctx.effect(
-      () => ctx.webServer.tapIndex(html => injectBootManifest(html, this.composed)),
-      'client-modules: boot manifest injection',
-    )
+    // The native desktop Host deliberately has no WebServer; Web composition
+    // may publish it before or after this row. A dynamic dependency preserves
+    // both surfaces and withdraws the routes with the providing context.
+    ctx.inject(['webServer'], (httpCtx) => {
+      httpCtx.effect(
+        () => httpCtx.webServer.register({ kind: 'prefix', path: '/plugins', handler: this.serveBundle }),
+        'client-modules: bundle route',
+      )
+      httpCtx.effect(
+        () => httpCtx.webServer.tapIndex(html => injectBootManifest(html, this.composed)),
+        'client-modules: boot manifest injection',
+      )
+    })
   }
 
   /**

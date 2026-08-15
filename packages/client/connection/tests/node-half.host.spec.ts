@@ -252,7 +252,7 @@ describe('connection node half', () => {
 
     expect(() => connection.rpc.handle('/rpc', async () => ({ ok: true, value: null }), {
       authority: 'trusted-host',
-    })).toThrow(/duplicate route/)
+    })).toThrow(/already has a handler/)
     await remove()
     expect(routes.map(candidate => candidate.path)).toEqual([API_PATH])
     await fiber.dispose()

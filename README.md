@@ -6,6 +6,10 @@ DeepSeek Harness (`dsh`) is an open-source agent harness developed by [DeepSeek 
 
 It uses an architecture where **everything is a plugin**, and is powered by [Cordis](https://github.com/cordiverse/cordis), whose design is described in [_A Programming Paradigm for Spatiotemporal Composability_](https://github.com/cordiverse/paper).
 
+> [!IMPORTANT]
+>
+> **A native macOS desktop preview is available on the `feat/electron-desktop` branch.** It runs the complete Harness UI in an Electron window without opening a local HTTP/WebSocket port. See the [desktop guide in English](apps/desktop/README.md) or the [complete Chinese guide](apps/desktop/README.zh.md).
+
 ## Developer preview
 
 DeepSeek Harness is currently in _developer preview_ and is iterating rapidly. **THERE WILL BE COMPATIBILITY-BREAKING CHANGES.**
@@ -33,6 +37,55 @@ pnpm install
 pnpm run build
 pnpm dsh web
 ```
+
+### Desktop application (macOS Apple silicon preview)
+
+The desktop application is a native distribution of the same Harness product, not a separate simplified UI. It keeps the existing Agent, session, tools, plugin graph, provider settings, and local-model support while replacing the browser carrier with an Electron boundary.
+
+| | Web | Desktop |
+| --- | --- | --- |
+| User interface | Browser tab | Independent Electron window |
+| Host process | `dsh web` CLI process | Embedded in the Electron main process |
+| RPC carrier | HTTP and WebSocket on loopback | Context-isolated Electron IPC |
+| Listening port | `127.0.0.1:3080` by default | None |
+| Node.js after installation | Required to run the CLI | Included in the application |
+| Current packaged target | Any supported Node.js platform | Apple silicon macOS (`arm64`) |
+
+The source currently lives on the Fork's feature branch. To build the desktop application from a fresh checkout:
+
+```sh
+git clone https://github.com/CosmicCoderDev/deepseek-harness.git
+cd deepseek-harness
+git switch feat/electron-desktop
+corepack enable
+pnpm install
+pnpm dist:desktop:mac
+```
+
+The command builds the shared Host and Web UI, creates the Electron application, rebuilds native dependencies for Apple silicon, generates DMG and ZIP artifacts under `apps/desktop/dist`, and finally starts the packaged Host and renderer with an empty temporary `DSH_HOME`. A missing static dependency, peer dependency, configured plugin, IPC preload, or renderer bundle makes the build fail instead of producing an unverified installer.
+
+To install it:
+
+1. Open `apps/desktop/dist/DeepSeek Harness-0.1.0-rc.6-arm64.dmg`.
+2. Drag **DeepSeek Harness** to **Applications** and replace an older preview if prompted.
+3. Eject the disk image and launch the application from **Applications**.
+4. Because the local preview is unsigned, use right-click → **Open** on the first launch if macOS Gatekeeper blocks it.
+
+For development without creating an installer, run `pnpm desktop`. The development window uses the same in-process Host and IPC carrier as the packaged application.
+
+Current limitations: only Apple silicon macOS is validated; the local build is unsigned and not notarized; automatic updates are not implemented; Windows, Linux, and Intel macOS packages are future work. See the [desktop guide in English](apps/desktop/README.md) or the [complete Chinese guide](apps/desktop/README.zh.md) for architecture, local-model configuration, security boundaries, smoke testing, and troubleshooting.
+
+## Configure a model
+
+Open **Settings → Models** to configure DeepSeek, a catalog provider, or a custom OpenAI-compatible endpoint. For example, a local Ollama route can use:
+
+- Provider ID: `ollama`
+- Base URL: `http://127.0.0.1:11434/v1`
+- API protocol: `openai-completions`
+- API key: any non-empty placeholder if the local endpoint does not authenticate
+- Model: `qwen3-coder:30b`
+
+Save the provider, select the model in the composer, and start a new session. The Web and desktop applications share the same `$DSH_HOME` settings and credentials. See the [model configuration guide](docs/user/guide/providers.md) for provider discovery, credentials, vision models, and troubleshooting.
 
 ## Community and support
 
