@@ -26,6 +26,9 @@ export async function startDesktopHost(): Promise<DesktopHost> {
     patchFiles: [DESKTOP_PATCH],
     args: [],
     watchUserLayers: false,
+    // The packaged Host owns the complete plugin set. Resolve bare configured
+    // packages beside this installed module instead of from the writable profile.
+    bareModuleBaseUrl: import.meta.url,
   })
   try {
     const apiProxy = required(ctx, 'apiProxy') as Parameters<typeof toFetchHandler>[0]

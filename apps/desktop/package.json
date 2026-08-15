@@ -10,7 +10,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && esbuild src/preload.ts --bundle --platform=node --format=cjs --external:electron --outfile=lib/preload.cjs",
     "start": "pnpm run build && electron .",
-    "test": "vitest run --root ../.. apps/desktop/tests/backend.spec.ts",
+    "test": "vitest run --root ../.. apps/desktop/tests/security.spec.ts",
     "smoke:packaged:mac": "node scripts/smoke-packaged-mac.mjs",
     "dist:mac": "pnpm -w run build && pnpm run build && electron-builder --mac dmg zip && pnpm run smoke:packaged:mac"
   },

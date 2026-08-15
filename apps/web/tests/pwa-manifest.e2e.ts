@@ -7,7 +7,7 @@ const DIST_ROOT = fileURLToPath(new URL('../dist', import.meta.url))
 
 it('ships install metadata with the built web application', async () => {
   const index = await readFile(join(DIST_ROOT, 'index.html'), 'utf8')
-  expect(index).toContain('<link rel="manifest" href="/manifest.webmanifest" />')
+  expect(index).toContain('<link rel="manifest" href="./manifest.webmanifest" />')
 
   const manifest: unknown = JSON.parse(await readFile(join(DIST_ROOT, 'manifest.webmanifest'), 'utf8'))
   expect(manifest).toEqual({
@@ -24,6 +24,19 @@ it('ships install metadata with the built web application', async () => {
       purpose: 'any',
     }],
   })
+})
+
+it('ships the renderer Content Security Policy without general inline-script permission', async () => {
+  const index = await readFile(join(DIST_ROOT, 'index.html'), 'utf8')
+  const policy = /<meta http-equiv="Content-Security-Policy" content="([^"]+)"/u.exec(index)?.[1]
+  expect(policy).toBeDefined()
+  const scripts = /(?:^|;\s*)script-src ([^;]+)/u.exec(policy!)?.[1]
+  expect(scripts).toContain("'unsafe-eval'")
+  expect(scripts).not.toContain("'unsafe-inline'")
+  expect(scripts?.match(/'sha256-[^']+'/gu)).toHaveLength(3)
+  expect(policy).toContain("object-src 'none'")
+  expect(policy).toContain("base-uri 'none'")
+  expect(policy).toContain("form-action 'none'")
 })
 
 it('ships a favicon that switches to a light mark under dark color scheme', async () => {

@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { WebServer, WebRoute } from '@deepseek-ai/dsh-host-webserver'
-import { ClientModuleRegistry } from '../src/index.ts'
+import { ClientModuleRegistry, injectBootManifest } from '../src/index.ts'
 
 let root: string | undefined
 
@@ -37,8 +37,8 @@ function writePackage(
   return clientPath
 }
 
-/** Construct the node-half service and capture its plugin-bundle route. */
-function constructWithRoute(packageNames: string[]): { service: ClientModuleRegistry; route: WebRoute } {
+/** Construct the node-half service and capture its asynchronously mounted plugin-bundle route. */
+async function constructWithRoute(packageNames: string[]): Promise<{ service: ClientModuleRegistry; route: WebRoute }> {
   const ctx = new Context()
   ctx.baseUrl = pathToFileURL(root!).href + '/'
   ctx.provide('loader', {
@@ -58,17 +58,39 @@ function constructWithRoute(packageNames: string[]): { service: ClientModuleRegi
     tapIndex: () => () => {},
   }
   ctx.provide('webServer', webServer as WebServer)
-  const service = new ClientModuleRegistry(ctx)
+  await ctx.plugin(ClientModuleRegistry).await()
+  const service = ctx.get('clientModules') as ClientModuleRegistry
   if (route === undefined) throw new Error('client bundle route was not registered')
   return { service, route }
 }
 
 /** Construct the node-half service over the enabled fixture entries. */
 function construct(packageNames: string[]): ClientModuleRegistry {
-  return constructWithRoute(packageNames).service
+  const ctx = new Context()
+  ctx.baseUrl = pathToFileURL(root!).href + '/'
+  ctx.provide('loader', {
+    *entries() {
+      for (const packageName of packageNames) {
+        yield { options: { name: packageName }, fiber: {}, disabled: false }
+      }
+    },
+  })
+  return new ClientModuleRegistry(ctx)
 }
 
 describe('client bundle activation', () => {
+  it('injects the boot graph as inert metadata instead of executable script', () => {
+    const graph = {
+      rev: 'rev-1',
+      entries: [{ id: '@fixture/client', url: '/plugins/client.js', rev: 'bundle-1' }],
+    }
+    const html = injectBootManifest('<html><head></head><body>shell</body></html>', graph)
+    expect(html).not.toContain('<script>')
+    const encoded = /<meta name="dsh-boot" content="([A-Za-z0-9+/=]+)">/u.exec(html)?.[1]
+    expect(encoded).toBeDefined()
+    expect(JSON.parse(Buffer.from(encoded!, 'base64').toString('utf8'))).toEqual(graph)
+  })
+
   it('allows sibling dsh roles', () => {
     const currentName = '@fixture/current-client-field'
     const clientPath = writePackage(currentName, {
@@ -121,7 +143,7 @@ describe('client bundle activation', () => {
     writeFileSync(clientPath, 'module.exports = {}\n')
     const map = '{"version":3,"sources":["src/client/index.tsx"]}\n'
     writeFileSync(`${clientPath}.map`, map)
-    const { route } = constructWithRoute([packageName])
+    const { route } = await constructWithRoute([packageName])
     let status = 0
     let headers: Record<string, string> | undefined
     let body = ''

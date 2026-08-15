@@ -182,6 +182,8 @@ export interface RunProfileOptions {
   args: readonly string[]
   /** Whether to mount live user-patch watchers (native packaged apps disable this). */
   watchUserLayers?: boolean
+  /** Installed-host module URL for bare plugins in a closed packaged runtime. */
+  bareModuleBaseUrl?: string
 }
 
 /**
@@ -258,7 +260,7 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
       args: options.args,
       exit: code => void shutdown.shutdown(code),
     })
-  })
+  }, options.bareModuleBaseUrl)
   app.current = ctx
   // A surface can dispose the whole tree while boot or this post-boot watcher
   // setup is still in flight — a signal, or a fast one-shot's appExit. Loader

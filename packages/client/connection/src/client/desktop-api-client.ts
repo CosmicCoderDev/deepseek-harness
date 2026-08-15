@@ -34,12 +34,21 @@ export interface DesktopBridge {
   abort(id: string): void
 }
 
-/** Return the native bridge only when the trusted preload installed it. */
+/**
+ * Return the native bridge only when the trusted preload installed it.
+ * @returns the bridge, or `undefined` outside the Electron renderer.
+ */
 export function desktopBridge(): DesktopBridge | undefined {
   return (globalThis as typeof globalThis & { __DSH_DESKTOP__?: DesktopBridge }).__DSH_DESKTOP__
 }
 
-/** Execute one Fetch-shaped request over the least-authority desktop bridge. */
+/**
+ * Execute one Fetch-shaped request over the least-authority desktop bridge.
+ * @param bridge - context-isolated preload API that carries the request.
+ * @param input - internal Host URL selected by the API client.
+ * @param init - Fetch method, headers, body, and cancellation signal.
+ * @returns response metadata plus a buffered or streaming body.
+ */
 export async function desktopFetch(
   bridge: DesktopBridge,
   input: URL,

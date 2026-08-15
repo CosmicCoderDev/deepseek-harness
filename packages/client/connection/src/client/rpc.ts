@@ -21,7 +21,11 @@ export function createWebConnectionRpc(): ClientConnectionRpc {
   return createFetchConnectionRpc((input, init) => globalThis.fetch(input, init))
 }
 
-/** Create the native desktop caller over the preload's IPC Fetch bridge. */
+/**
+ * Create the native desktop caller over the preload's IPC Fetch bridge.
+ * @param bridge - context-isolated preload API that carries RPC requests.
+ * @returns caller that owns request correlation and response-envelope validation.
+ */
 export function createDesktopConnectionRpc(bridge: DesktopBridge): ClientConnectionRpc {
   return createFetchConnectionRpc((input, init) => desktopFetch(bridge, input, init), INTERNAL_BASE)
 }
