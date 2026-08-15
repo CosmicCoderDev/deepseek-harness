@@ -108,6 +108,8 @@ function npmPackageOf(id: string): string | undefined {
 }
 
 export default defineConfig({
+  // Relative entry assets let the same build run from HTTP and Electron file://.
+  base: './',
   plugins: [rejectStandaloneServe(), clientDocumentTitle(), react()],
   build: {
     sourcemap: true,
