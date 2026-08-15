@@ -38,6 +38,16 @@ For a local Ollama server with `qwen3-coder:30b`:
 
 Make sure Ollama is running and the model is already available locally. Save the provider, select the model in the composer, and create a new session. Configuration changes apply to the next request without restarting the application. The [model configuration guide](../../docs/user/guide/providers.md) covers other providers, credentials, model discovery, and troubleshooting.
 
+On first launch, the desktop application reads Ollama's local `GET /api/tags` list. It does not send a prompt, download a model, or rewrite Harness configuration. When Ollama is detected, the assistant distinguishes between an installed recommended model and a running server that is missing it, then presents the exact values above. Choose **Copy Configuration** to paste them into the Models form. If you dismiss the assistant, reopen it at any time from **Help → Local Model Setup**.
+
+## Diagnostic logs
+
+The desktop main process records startup, Host lifecycle, renderer-load errors, and exceptional states in the operating system log directory. Common API-key, bearer-token, authorization-header, and password shapes are redacted before disk writes. Environment variables and model conversation content are not collected.
+
+- Choose **Help → Open Logs Folder** to inspect the raw desktop log.
+- Choose **Help → Export Diagnostics** to create a text report containing application, Electron, Chromium, and Node versions, platform facts, and at most the last 256 KiB of the log.
+- The report asks you to review it before sharing. Nothing is uploaded, and a report exists only after you choose its destination.
+
 ## Build for macOS
 
 ```sh
@@ -73,3 +83,4 @@ The preload exposes only boot metadata and three bounded carrier operations: req
 - **A JavaScript module is missing at startup** — Confirm that the installed application version matches the newly built DMG. Rebuild with `pnpm dist:desktop:mac`; the isolated smoke test must pass before the command succeeds.
 - **The local model cannot be reached** — Confirm the local server is running, the base URL includes `/v1`, and the selected model exists. Enter the model manually if the endpoint does not implement `GET /models`.
 - **A saved provider or model does not appear in an existing conversation** — Select it in the composer and start a new session; sessions that have already sent a request retain their recorded model.
+- **You need to report a startup problem** — Choose **Help → Export Diagnostics**, review the report for paths or content you do not want to share, and attach it to the problem description.

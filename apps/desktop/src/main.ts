@@ -1,12 +1,18 @@
 /** Native Electron shell with an in-process Host and least-authority IPC carrier. */
 
-import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { access, readFile, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
-  app, BrowserWindow, dialog, ipcMain, Menu, protocol, shell,
+  app, BrowserWindow, clipboard, dialog, ipcMain, Menu, protocol, shell,
   type IpcMainInvokeEvent, type WebContents,
 } from 'electron'
+import {
+  desktopLogPath,
+  exportDesktopDiagnostics,
+  initializeDesktopDiagnostics,
+  recordDesktopDiagnostic,
+} from './diagnostics.ts'
 import { startDesktopHost, type DesktopHost } from './host.ts'
 import {
   IPC_ABORT, IPC_BOOT, IPC_FETCH, IPC_STREAM,
@@ -17,9 +23,15 @@ import {
   parseDesktopFetchRequest,
   parsePluginBundleUrl,
 } from './security.ts'
+import {
+  ollamaConfigurationText,
+  probeOllama,
+  RECOMMENDED_OLLAMA_MODEL,
+} from './onboarding.ts'
 
 const APP_NAME = 'DeepSeek Harness'
 const SMOKE_TEST = process.argv.includes('--smoke-test')
+const ONBOARDING_MARKER = 'desktop-local-model-onboarding-v1'
 
 protocol.registerSchemesAsPrivileged([{
   scheme: 'dsh-plugin',
@@ -36,6 +48,24 @@ function installApplicationMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: APP_NAME, submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
     { role: 'fileMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
+    {
+      role: 'help',
+      submenu: [
+        {
+          label: 'Local Model Setup / 本地模型设置',
+          click: () => { void showLocalModelSetup(false) },
+        },
+        { type: 'separator' },
+        {
+          label: 'Open Logs Folder / 打开日志目录',
+          click: () => { void openLogsFolder() },
+        },
+        {
+          label: 'Export Diagnostics… / 导出诊断…',
+          click: () => { void saveDiagnostics() },
+        },
+      ],
+    },
   ]))
 }
 
@@ -67,14 +97,14 @@ function createWindow(reveal = true): BrowserWindow {
     if (isSafeExternalUrl(target)) void shell.openExternal(target)
   })
   window.webContents.on('preload-error', (_event, preloadPath, error) => {
-    console.error(`[desktop] preload failed (${preloadPath}):`, error)
+    recordDesktopDiagnostic('error', `preload failed (${preloadPath})`, error)
   })
   window.webContents.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
-    if (isMainFrame) console.error(`[desktop] renderer load failed (${code} ${description}): ${url}`)
+    if (isMainFrame) recordDesktopDiagnostic('error', `renderer load failed (${code} ${description}): ${url}`)
   })
   window.webContents.on('console-message', (details) => {
     if (details.level === 'warning' || details.level === 'error') {
-      console.warn(`[renderer:${details.level}] ${details.sourceId}:${details.lineNumber} ${details.message}`)
+      recordDesktopDiagnostic('warn', `[renderer:${details.level}] ${details.sourceId}:${details.lineNumber} ${details.message}`)
     }
   })
   if (reveal) window.once('ready-to-show', () => { window.show() })
@@ -208,6 +238,86 @@ async function stopHost(): Promise<void> {
   host = undefined
 }
 
+async function onboardingWasShown(): Promise<boolean> {
+  try {
+    await access(join(app.getPath('userData'), ONBOARDING_MARKER))
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function markOnboardingShown(): Promise<void> {
+  await writeFile(join(app.getPath('userData'), ONBOARDING_MARKER), new Date().toISOString(), 'utf8')
+}
+
+async function showLocalModelSetup(firstRun: boolean): Promise<void> {
+  const probe = await probeOllama()
+  const status = probe.kind === 'ready'
+    ? `已检测到 Ollama 和 ${RECOMMENDED_OLLAMA_MODEL}。\nOllama and ${RECOMMENDED_OLLAMA_MODEL} were detected.`
+    : probe.kind === 'model-missing'
+      ? `已检测到 Ollama，但没有 ${RECOMMENDED_OLLAMA_MODEL}。请先运行：\nollama pull ${RECOMMENDED_OLLAMA_MODEL}\n\nOllama is running, but the recommended model is missing.`
+      : '没有检测到本机 Ollama。请先启动 Ollama。\nLocal Ollama was not detected. Start Ollama first.'
+  recordDesktopDiagnostic('info', `Ollama onboarding probe: ${probe.kind}`)
+  const options = {
+    type: probe.kind === 'ready' ? 'info' as const : 'warning' as const,
+    title: 'Local Model Setup / 本地模型设置',
+    message: status,
+    detail: [
+      '在应用中打开“设置 → 模型 → 添加自定义提供方”，填写以下内容：',
+      'Open “Settings → Models → Add a custom provider” and enter:',
+      '',
+      ollamaConfigurationText(),
+    ].join('\n'),
+    buttons: ['Copy Configuration / 复制配置', 'Close / 关闭'],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+  }
+  const result = mainWindow === undefined
+    ? await dialog.showMessageBox(options)
+    : await dialog.showMessageBox(mainWindow, options)
+  if (result.response === 0) clipboard.writeText(ollamaConfigurationText())
+  if (firstRun) await markOnboardingShown()
+}
+
+async function openLogsFolder(): Promise<void> {
+  const currentLog = desktopLogPath()
+  const path = currentLog === undefined ? app.getPath('logs') : dirname(currentLog)
+  const error = await shell.openPath(path)
+  if (error.length > 0) {
+    recordDesktopDiagnostic('error', 'failed to open logs folder', error)
+    dialog.showErrorBox('DeepSeek Harness', error)
+  }
+}
+
+async function saveDiagnostics(): Promise<void> {
+  const timestamp = new Date().toISOString().replace(/[:.]/gu, '-')
+  const options = {
+    title: 'Export Diagnostics / 导出诊断',
+    defaultPath: join(app.getPath('documents'), `DeepSeek-Harness-diagnostics-${timestamp}.txt`),
+    filters: [{ name: 'Text', extensions: ['txt'] }],
+  }
+  const result = mainWindow === undefined
+    ? await dialog.showSaveDialog(options)
+    : await dialog.showSaveDialog(mainWindow, options)
+  if (result.canceled) return
+  try {
+    await exportDesktopDiagnostics(result.filePath, {
+      version: app.getVersion(),
+      electron: process.versions.electron,
+      chrome: process.versions.chrome,
+      node: process.versions.node,
+      platform: `${process.platform}-${process.arch}`,
+      packaged: String(app.isPackaged),
+    })
+    recordDesktopDiagnostic('info', `diagnostics exported to ${result.filePath}`)
+  } catch (error) {
+    recordDesktopDiagnostic('error', 'failed to export diagnostics', error)
+    dialog.showErrorBox('DeepSeek Harness', error instanceof Error ? error.message : String(error))
+  }
+}
+
 function revealMainWindow(): void {
   if (mainWindow === undefined || mainWindow.isDestroyed()) return
   if (mainWindow.isMinimized()) mainWindow.restore()
@@ -241,8 +351,20 @@ if (!ownsInstance) {
   })
 
   void app.whenReady().then(async () => {
+    try {
+      await initializeDesktopDiagnostics(app.getPath('logs'))
+    } catch (error) {
+      console.error('[desktop] diagnostic log initialization failed', error)
+    }
     installApplicationMenu()
+    process.on('uncaughtExceptionMonitor', (error) => {
+      recordDesktopDiagnostic('error', 'uncaught exception', error)
+    })
+    process.on('unhandledRejection', (error) => {
+      recordDesktopDiagnostic('error', 'unhandled rejection', error)
+    })
     host = await startDesktopHost()
+    recordDesktopDiagnostic('info', 'in-process Host started')
     installIpc()
     installPluginProtocol()
     await openDesktop(!SMOKE_TEST)
@@ -255,10 +377,14 @@ if (!ownsInstance) {
       app.quit()
       return
     }
+    if (!await onboardingWasShown()) {
+      await showLocalModelSetup(true).catch((error: unknown) => {
+        recordDesktopDiagnostic('warn', 'local model onboarding failed', error)
+      })
+    }
   }).catch(async (error: unknown) => {
     const detail = error instanceof Error ? error.stack ?? error.message : String(error)
-    console.error('[desktop] startup failed:')
-    console.dir(error, { depth: 12 })
+    recordDesktopDiagnostic('error', 'startup failed', error)
     if (SMOKE_TEST) {
       stopped = true
       app.exit(1)
