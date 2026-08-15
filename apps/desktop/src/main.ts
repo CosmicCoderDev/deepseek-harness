@@ -369,6 +369,9 @@ if (!ownsInstance) {
     installPluginProtocol()
     await openDesktop(!SMOKE_TEST)
     if (SMOKE_TEST) {
+      if (host.toolNames.includes('web_search')) {
+        throw new Error('desktop: local-first build unexpectedly exposes web_search')
+      }
       await waitForRenderer()
       console.log('[desktop] packaged smoke test passed')
       mainWindow?.destroy()

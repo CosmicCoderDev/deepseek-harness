@@ -25,3 +25,13 @@
   inject: []
   config:
     trustedHosts: []
+
+# The desktop build is local-model-first. The stock Web composition exposes
+# web_search even when its DeepSeek credential is absent, which makes a local
+# model repeatedly call a tool that can only fail. Keep the provider settings
+# available for a future opt-in, but do not advertise search to the model.
+# web_fetch is already disabled by the base composition for SSRF safety.
+- id: tool-web
+  config:
+    search: false
+    fetch: false
