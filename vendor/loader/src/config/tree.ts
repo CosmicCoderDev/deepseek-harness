@@ -3,24 +3,6 @@ import { isNonNullable, type Dict } from '@deepseek-ai/cosmokit'
 import { Entry, type EntryOptions } from './entry.ts'
 import { EntryGroup } from './group.ts'
 
-async function resolveImportSpecifier(name: string, baseUrl: string): Promise<string> {
-  if (name.startsWith('.')) return new URL(name, baseUrl).href
-  // Browser boot manifests already carry absolute custom-protocol URLs.
-  if (/^[A-Za-z][A-Za-z0-9+.-]*:/u.test(name)) return name
-  const runtime = globalThis as typeof globalThis & { process?: { versions?: { node?: string } } }
-  if (runtime.process?.versions?.node === undefined) return name
-  // EntryTree is shared with the browser loader build, so Node-only helpers
-  // stay behind this Host-only path instead of becoming static Web imports.
-  const [{ createRequire }, { isAbsolute }, { pathToFileURL }] = await Promise.all([
-    import(/* @vite-ignore */'node:module'),
-    import(/* @vite-ignore */'node:path'),
-    import(/* @vite-ignore */'node:url'),
-  ])
-  if (isAbsolute(name)) return pathToFileURL(name).href
-  const resolved = createRequire(new URL('__cordis_loader__.js', baseUrl)).resolve(name)
-  return resolved.startsWith('node:') ? resolved : pathToFileURL(resolved).href
-}
-
 /** Mutable tree of loader entries. Persistence is supplied by subclasses. */
 export abstract class EntryTree {
   static readonly sep = ':'
@@ -169,16 +151,13 @@ export abstract class EntryTree {
       // onImport.tracePromise.__proto__
       // internal.import
       info.offset += 3
-      const baseUrl = this.ctx.baseUrl!
-      // Resolve bare configured packages at the config-tree anchor before
-      // entering Node's internal loader. Electron's embedded ModuleLoader can
-      // otherwise replace the supplied parent URL with this module's URL,
-      // skipping the profile-level node_modules fallback entirely.
-      const resolved = await resolveImportSpecifier(name, baseUrl)
       if (this.ctx.loader.internal) {
-        return await this.ctx.loader.internal.import(resolved, baseUrl, {})
+        return await this.ctx.loader.internal.import(name, this.ctx.baseUrl!, {})
+      } else if (name.startsWith('.')) {
+        return await import(/* @vite-ignore */new URL(name, this.ctx.baseUrl).href)
+      } else {
+        return await import(/* @vite-ignore */name)
       }
-      return await import(/* @vite-ignore */resolved)
     }, getOuterStack)
   }
 

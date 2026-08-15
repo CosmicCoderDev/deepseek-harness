@@ -7,17 +7,18 @@ import {
   app, BrowserWindow, dialog, ipcMain, Menu, protocol, shell,
   type IpcMainInvokeEvent, type WebContents,
 } from 'electron'
-import { isSafeExternalUrl } from './backend.ts'
 import { startDesktopHost, type DesktopHost } from './host.ts'
 import {
   IPC_ABORT, IPC_BOOT, IPC_FETCH, IPC_STREAM,
-  type DesktopFetchRequest, type DesktopFetchResponse, type DesktopStreamEvent,
+  type DesktopFetchResponse, type DesktopStreamEvent,
 } from './ipc-contract.ts'
+import {
+  isSafeExternalUrl,
+  parseDesktopFetchRequest,
+  parsePluginBundleUrl,
+} from './security.ts'
 
 const APP_NAME = 'DeepSeek Harness'
-const INTERNAL_ORIGIN = 'http://dsh.internal'
-const MAX_BODY_BYTES = 160 * 1024 * 1024
-const REQUEST_ID = /^[A-Za-z0-9-]{8,80}$/u
 const SMOKE_TEST = process.argv.includes('--smoke-test')
 
 protocol.registerSchemesAsPrivileged([{
@@ -87,34 +88,9 @@ function assertMainSender(senderId: number): void {
   }
 }
 
-function parseFetchRequest(value: unknown): DesktopFetchRequest {
-  if (typeof value !== 'object' || value === null) throw new Error('desktop: malformed IPC request')
-  const request = value as Partial<DesktopFetchRequest>
-  if (typeof request.id !== 'string' || !REQUEST_ID.test(request.id)
-    || typeof request.url !== 'string' || typeof request.method !== 'string'
-    || !Array.isArray(request.headers)
-    || (request.body !== undefined && typeof request.body !== 'string')) {
-    throw new Error('desktop: malformed IPC request')
-  }
-  const url = new URL(request.url)
-  if (url.origin !== INTERNAL_ORIGIN || !['GET', 'POST'].includes(request.method)) {
-    throw new Error('desktop: rejected IPC request target')
-  }
-  if (request.body !== undefined && Buffer.byteLength(request.body) > MAX_BODY_BYTES) {
-    throw new Error('desktop: IPC request body exceeds the configured limit')
-  }
-  for (const header of request.headers) {
-    if (!Array.isArray(header) || header.length !== 2
-      || typeof header[0] !== 'string' || typeof header[1] !== 'string') {
-      throw new Error('desktop: malformed IPC request headers')
-    }
-  }
-  return request as DesktopFetchRequest
-}
-
 async function handleFetch(event: IpcMainInvokeEvent, rawRequest: unknown): Promise<DesktopFetchResponse> {
   assertMainSender(event.sender.id)
-  const request = parseFetchRequest(rawRequest)
+  const request = parseDesktopFetchRequest(rawRequest)
   if (activeRequests.has(request.id)) throw new Error('desktop: duplicate IPC request id')
   const controller = new AbortController()
   activeRequests.set(request.id, controller)
@@ -184,17 +160,14 @@ function installIpc(): void {
 function installPluginProtocol(): void {
   protocol.handle('dsh-plugin', async (request) => {
     if (host === undefined) return new Response('Host unavailable', { status: 503 })
-    const url = new URL(request.url)
-    if (url.hostname !== 'bundle') return new Response('not found', { status: 404 })
-    const match = /^\/([^/]+)\/client\.js(\.map)?$/u.exec(url.pathname)
-    if (match?.[1] === undefined) return new Response('not found', { status: 404 })
-    const id = decodeURIComponent(match[1])
-    const bundle = host.clientBundlePath(id)
+    const target = parsePluginBundleUrl(request.url)
+    if (target === undefined) return new Response('not found', { status: 404 })
+    const bundle = host.clientBundlePath(target.id)
     if (bundle === undefined) return new Response('not found', { status: 404 })
     try {
-      const content = await readFile(match[2] === undefined ? bundle : `${bundle}.map`)
+      const content = await readFile(target.sourceMap ? `${bundle}.map` : bundle)
       return new Response(content, {
-        headers: { 'content-type': match[2] === undefined ? 'text/javascript; charset=utf-8' : 'application/json' },
+        headers: { 'content-type': target.sourceMap ? 'application/json' : 'text/javascript; charset=utf-8' },
       })
     } catch {
       return new Response('not found', { status: 404 })
@@ -235,55 +208,69 @@ async function stopHost(): Promise<void> {
   host = undefined
 }
 
-app.setName(APP_NAME)
-app.on('web-contents-created', (_event, contents) => {
-  contents.session.setPermissionRequestHandler((_webContents, _permission, callback) => { callback(false) })
-})
-app.on('before-quit', (event) => {
-  if (stopped) return
-  event.preventDefault()
-  if (stopping) return
-  stopping = true
-  void stopHost().finally(() => {
-    stopped = true
-    app.quit()
-  })
-})
-app.on('window-all-closed', () => { app.quit() })
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) void openDesktop()
-})
+function revealMainWindow(): void {
+  if (mainWindow === undefined || mainWindow.isDestroyed()) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+}
 
-void app.whenReady().then(async () => {
-  installApplicationMenu()
-  host = await startDesktopHost()
-  installIpc()
-  installPluginProtocol()
-  await openDesktop(!SMOKE_TEST)
-  if (SMOKE_TEST) {
-    await waitForRenderer()
-    console.log('[desktop] packaged smoke test passed')
-    mainWindow?.destroy()
-    await stopHost()
+app.setName(APP_NAME)
+const ownsInstance = SMOKE_TEST || app.requestSingleInstanceLock()
+if (!ownsInstance) {
+  app.quit()
+} else {
+  app.on('second-instance', revealMainWindow)
+  app.on('web-contents-created', (_event, contents) => {
+    contents.session.setPermissionRequestHandler((_webContents, _permission, callback) => { callback(false) })
+  })
+  app.on('before-quit', (event) => {
+    if (stopped) return
+    event.preventDefault()
+    if (stopping) return
+    stopping = true
+    void stopHost().finally(() => {
+      stopped = true
+      app.quit()
+    })
+  })
+  app.on('window-all-closed', () => { app.quit() })
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) void openDesktop()
+    else revealMainWindow()
+  })
+
+  void app.whenReady().then(async () => {
+    installApplicationMenu()
+    host = await startDesktopHost()
+    installIpc()
+    installPluginProtocol()
+    await openDesktop(!SMOKE_TEST)
+    if (SMOKE_TEST) {
+      await waitForRenderer()
+      console.log('[desktop] packaged smoke test passed')
+      mainWindow?.destroy()
+      await stopHost()
+      stopped = true
+      app.quit()
+      return
+    }
+  }).catch(async (error: unknown) => {
+    const detail = error instanceof Error ? error.stack ?? error.message : String(error)
+    console.error('[desktop] startup failed:')
+    console.dir(error, { depth: 12 })
+    if (SMOKE_TEST) {
+      stopped = true
+      app.exit(1)
+      return
+    }
+    await dialog.showMessageBox({
+      type: 'error',
+      title: `${APP_NAME} failed to start`,
+      message: 'The local DeepSeek Harness Host could not start.',
+      detail,
+    })
     stopped = true
     app.quit()
-    return
-  }
-}).catch(async (error: unknown) => {
-  const detail = error instanceof Error ? error.stack ?? error.message : String(error)
-  console.error('[desktop] startup failed:')
-  console.dir(error, { depth: 12 })
-  if (SMOKE_TEST) {
-    stopped = true
-    app.exit(1)
-    return
-  }
-  await dialog.showMessageBox({
-    type: 'error',
-    title: `${APP_NAME} failed to start`,
-    message: 'The local DeepSeek Harness Host could not start.',
-    detail,
   })
-  stopped = true
-  app.quit()
-})
+}

@@ -16,11 +16,11 @@ Status: implemented
 
 `DesktopApiClient` 保留 `AbstractApiClient` 的信封校验、单次调用关联、SSE 解析与重连行为。其 Fetch 形态的物理载体是隔离 preload API，只包含 `request`、`subscribe` 与 `abort`。主进程只接受 GET/POST，强制使用合成地址 `http://dsh.internal`，校验请求标识和请求头，限制请求体大小，再分派给 `HostConnectionHandle.createLocalFetchHandler`。流式响应以有界 IPC 数据块事件中继。通用 connection RPC channel 也使用同一本地分派器，因此不存在 HTTP 或 WebSocket 监听端口。
 
-preload 被构建为单个 CommonJS bundle，因为 Electron 的沙箱 preload 运行时不能跟随任意本地 import。渲染进程关闭 Node 注入，启用上下文隔离和 Chromium 沙箱，拒绝所有权限请求，阻止外部导航，并且只把安全的 HTTP、HTTPS 和邮件目标交给操作系统。
+preload 被构建为单个 CommonJS bundle，因为 Electron 的沙箱 preload 运行时不能跟随任意本地 import。渲染进程关闭 Node 注入，启用上下文隔离和 Chromium 沙箱，由内容安全策略限制文档能力，拒绝所有权限请求，阻止外部导航，并且只把安全的 HTTP、HTTPS 和邮件目标交给操作系统。现有客户端插件运行器会在运行时执行 Host 提供的 bundle，因此策略保留 `unsafe-eval`；Web Host 把启动图携带为不可执行的 Base64 元数据，只有三个内置主题启动脚本变体通过精确脚本哈希获准执行。通用内联脚本、对象、表单和任意导航仍不可用。正常启动会获取 Electron 单实例锁，因此第二次激活只会恢复现有窗口并将其置于前台，不会针对同一个 Harness home 启动另一个 Host。隔离的打包冒烟进程不获取该用户实例锁。
 
 ## 打包运行时闭包
 
-稳定的 CLI `profile-boot` 导出让 Electron 可以复用受支持的 profile loader，而不需要调用 CLI，也不会启动用户层 HMR watcher。配置中的裸插件 specifier 会在 config-tree 的 base URL 上解析，然后才进入 Node 内部模块加载器。这个显式解析是必要的，因为 Electron 嵌入的 loader 可能替换调用方传入的父 URL，从而跳过打包 profile 的 `node_modules` 回退路径。
+稳定的 CLI `profile-boot` 导出让 Electron 可以复用受支持的 profile loader，而不需要调用 CLI，也不会启动用户层 HMR watcher。桌面 Host 通过现有的“宿主拥有裸模块”接口传入自身安装模块 URL，使打包插件从应用安装目录解析，而 profile 内的相对路径条目仍在 profile 配置旁解析。共享 Loader 因而继续保持普通源码与测试语义。
 
 Electron Builder 将 Host 闭包、已编译的 preload/主进程、Web dist 与应用图标打入 `DeepSeek Harness.app`，同时生成 DMG 和 ZIP。运行时依赖树保留在真实文件系统中，而不是放进 ASAR，因为 profile 启动会为配置加载的插件维护带软链接的 `node_modules` 回退路径；ASAR 虚拟目录不能成为有效的操作系统软链接目标。桌面 manifest 显式携带 Electron Builder 原本会遗漏的必需 peer service 闭包。打包最后会在隔离用户目录中进行冒烟启动，依次启动 Host、加载渲染外壳并等待 React 根节点，因此工作区链接和已有用户 profile 都不能掩盖不完整的产物。当前配置为本地测试而明确把签名 identity 设为 null。公开分发仍属于发布操作，需要 Developer ID 签名、Hardened Runtime、公证和更新策略；这些发布凭据不会改变运行时架构。
 
@@ -36,4 +36,4 @@ Electron Builder 将 Host 闭包、已编译的 preload/主进程、Web dist 与
 
 ## 后果
 
-开发态和打包后的 macOS 应用现在都能运行完整现有 UI 与已配置本地模型，无需打开监听端口，也无需外部 Node 进程。Web 模式保持不变，继续使用 HTTP/WebSocket。桌面载体新增一个平台子类、一个本地 Host 分派器、一个私有 bundle 协议和 Electron 打包层，而逻辑 RPC 约定仍然共享。聚焦测试覆盖内部地址选择、单次请求载体、IPC 流、中止、请求信任和外部导航信任；打包验收还会从空的 Harness home 启动 Host 与渲染进程，实时验收则检查开发态和打包态主进程都没有持有 TCP 监听 socket。
+开发态和打包后的 macOS 应用都能运行完整现有 UI 与已配置本地模型，无需打开监听端口，也无需外部 Node 进程。Web 模式继续使用 HTTP/WebSocket。桌面载体新增一个平台子类、一个本地 Host 分派器、一个私有 bundle 协议和 Electron 打包层，而逻辑 RPC 约定仍然共享。聚焦测试覆盖内部地址选择、单次请求载体、IPC 流、中止、Fetch 请求校验、插件资源选择和外部导航信任；打包验收还会从空的 Harness home 启动 Host 与渲染进程，实时验收则检查开发态和打包态主进程都没有持有 TCP 监听 socket。

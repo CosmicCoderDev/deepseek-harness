@@ -19,7 +19,7 @@ pnpm install
 pnpm desktop
 ```
 
-The renderer has Node integration disabled, context isolation and Chromium sandboxing enabled, all permission requests denied, and navigation restricted to local application resources. Only ordinary HTTP, HTTPS, and mail links may be handed to the operating system.
+The renderer has Node integration disabled, context isolation and Chromium sandboxing enabled, all permission requests denied, a restrictive Content Security Policy, and navigation restricted to local application resources. The policy permits dynamic script evaluation because the existing client-plugin runner evaluates Host-provided plugin bundles at runtime, and it hashes the three exact built-in theme bootstrap variants instead of granting general inline-script execution. It still blocks objects, forms, arbitrary navigation, and unlisted resource classes. Only ordinary HTTP, HTTPS, and mail links may be handed to the operating system. Normal launches use Electron's single-instance lock; opening the application again restores and focuses the existing window instead of starting a second Host against the same `$DSH_HOME`.
 
 ## Configure a local model
 
