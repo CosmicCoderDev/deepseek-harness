@@ -34,6 +34,29 @@ pnpm run build
 pnpm dsh web
 ```
 
+### Run the desktop app (macOS preview)
+
+The desktop app embeds the Harness Host in Electron, loads the same plugin-driven UI locally, and does not open an HTTP or WebSocket listening port. From a source checkout:
+
+```sh
+pnpm install
+pnpm dist:desktop:mac
+```
+
+The Apple silicon application, DMG, and ZIP are generated under `apps/desktop/dist`. The current preview build is unsigned, so macOS may require you to right-click the application and choose **Open** on first launch. See the [desktop application guide](apps/desktop/README.md) for installation, packaging, security boundaries, and current limitations.
+
+## Configure a model
+
+Open **Settings → Models** to configure DeepSeek, a catalog provider, or a custom OpenAI-compatible endpoint. For example, a local Ollama route can use:
+
+- Provider ID: `ollama`
+- Base URL: `http://127.0.0.1:11434/v1`
+- API protocol: `openai-completions`
+- API key: any non-empty placeholder if the local endpoint does not authenticate
+- Model: `qwen3-coder:30b`
+
+Save the provider, select the model in the composer, and start a new session. The Web and desktop applications share the same `$DSH_HOME` settings and credentials. See the [model configuration guide](docs/user/guide/providers.md) for provider discovery, credentials, vision models, and troubleshooting.
+
 ## Community and support
 
 - Feel free to submit feedback or bug reports through [GitHub Discussions](https://github.com/deepseek-ai/deepseek-harness/discussions).
