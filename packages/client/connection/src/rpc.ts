@@ -2,6 +2,11 @@
 
 import type { RpcResult } from '@deepseek-ai/dsh-host-apiproxy/api'
 
+/** Fetch-shaped transport seam shared without importing the Node HTTP adapter. */
+export interface ConnectionFetchHandler {
+  fetch(request: Request): Promise<Response>
+}
+
 /** Trust fence applied before a Host RPC channel reaches its handler. */
 export type ConnectionRpcAuthority = 'trusted-host' | 'loopback'
 
@@ -56,6 +61,14 @@ export interface HostConnectionRpc {
 export interface HostConnectionHandle {
   /** Generic RPC channel registry. */
   readonly rpc: HostConnectionRpc
+  /**
+   * Compose the transport-neutral Fetch dispatcher used by native carriers.
+   * The supplied fallback owns ordinary `/api` methods; registered shared
+   * interceptors and logical RPC channels are selected before it.
+   * @param fallback - ordinary API gateway Fetch handler.
+   * @returns a local, already-authorized Fetch dispatcher.
+   */
+  createLocalFetchHandler(fallback: ConnectionFetchHandler): ConnectionFetchHandler
 }
 
 /** Client caller for logical RPC channels carried by the current transport. */
