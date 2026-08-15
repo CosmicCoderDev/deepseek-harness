@@ -6,6 +6,10 @@ DeepSeek Harness（`dsh`）是由 [DeepSeek AI](https://deepseek.com) 开发的�
 
 它采用**一切皆插件**的架构，并由 [Cordis](https://github.com/cordiverse/cordis) 驱动，其设计参见论文 [_A Programming Paradigm for Spatiotemporal Composability_](https://github.com/cordiverse/paper)。
 
+> [!IMPORTANT]
+>
+> **`feat/electron-desktop-rc8` 分支提供原生 macOS 桌面预览版。**它在 Electron 窗口中运行完整 Harness UI，不开放本地 HTTP/WebSocket 端口。详见[桌面应用指南](apps/desktop/README.md)。
+
 ## 开发者预览
 
 DeepSeek Harness 目前处于 _开发者预览_ 阶段，正在快速迭代。**未来将出现破坏兼容性的变更。**
@@ -36,16 +40,33 @@ pnpm dsh web
 
 `pnpm run build` 会准备仓库产物。`pnpm dsh web` 会直接使用这些已构建产物，不会重新构建。
 
-### 运行桌面应用（macOS 预览版）
+### 桌面应用（macOS Apple 芯片预览版）
 
-桌面应用将 Harness Host 嵌入 Electron，在本地加载同一套插件化 UI，并且不会打开 HTTP 或 WebSocket 监听端口。在源码仓库中运行：
+桌面应用是同一套 Harness 产品的原生分发方式，并非单独制作的简化 UI。它保留现有 Agent、会话、工具、插件图、模型提供方设置和本地模型支持，仅将浏览器通信载体替换为 Electron 边界。
+
+| | Web | 桌面版 |
+| --- | --- | --- |
+| 用户界面 | 浏览器标签页 | 独立 Electron 窗口 |
+| Host 进程 | `dsh web` CLI 进程 | 嵌入 Electron 主进程 |
+| RPC 载体 | 回环地址上的 HTTP 和 WebSocket | 上下文隔离的 Electron IPC |
+| 监听端口 | 默认 `127.0.0.1:3080` | 无 |
+| 安装后是否需要 Node.js | 运行 CLI 时需要 | 已包含在应用中 |
+| 当前打包目标 | Node.js 支持的平台 | Apple 芯片 macOS（`arm64`） |
+
+从 Fork 的 rc.8 功能分支构建桌面应用：
 
 ```sh
+git clone https://github.com/CosmicCoderDev/deepseek-harness.git
+cd deepseek-harness
+git switch feat/electron-desktop-rc8
+corepack enable
 pnpm install
 pnpm dist:desktop:mac
 ```
 
-Apple 芯片版应用、DMG 和 ZIP 会生成在 `apps/desktop/dist` 下。当前预览版未签名，因此 macOS 首次启动时可能需要右键应用并选择**打开**。安装方式、打包流程、安全边界和当前限制请参阅[桌面应用指南](apps/desktop/README.md)。
+该命令会构建共享 Host 和 Web UI、创建 Electron 应用、在 `apps/desktop/dist` 下生成 DMG 和 ZIP，并使用空的临时 `DSH_HOME` 对打包后的 Host 与渲染进程做冒烟测试。安装时打开生成的 arm64 DMG，将 **DeepSeek Harness** 拖入**应用程序**，推出镜像后启动应用。预览版未签名；若 Gatekeeper 阻止首次启动，请右键应用并选择**打开**。
+
+不创建安装包的开发运行方式是 `pnpm desktop`。当前仅验证 Apple 芯片 macOS；签名、公证、自动更新、Windows、Linux 和 Intel macOS 打包尚未实现。架构、安全、本地模型配置、测试及故障排除详见[桌面应用指南](apps/desktop/README.md)。
 
 ## 配置模型
 

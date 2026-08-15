@@ -6,6 +6,10 @@ DeepSeek Harness (`dsh`) is an open-source agent harness developed by [DeepSeek 
 
 It uses an architecture where **everything is a plugin**, and is powered by [Cordis](https://github.com/cordiverse/cordis), whose design is described in [_A Programming Paradigm for Spatiotemporal Composability_](https://github.com/cordiverse/paper).
 
+> [!IMPORTANT]
+>
+> **A native macOS desktop preview is available on the `feat/electron-desktop-rc8` branch.** It runs the complete Harness UI in an Electron window without opening a local HTTP/WebSocket port. See the [desktop guide](apps/desktop/README.md).
+
 ## Developer preview
 
 DeepSeek Harness is currently in _developer preview_ and is iterating rapidly. **THERE WILL BE COMPATIBILITY-BREAKING CHANGES.**
@@ -36,16 +40,33 @@ pnpm dsh web
 
 `pnpm run build` prepares the repository artifacts. `pnpm dsh web` uses those built artifacts without rebuilding.
 
-### Run the desktop app (macOS preview)
+### Desktop application (macOS Apple silicon preview)
 
-The desktop app embeds the Harness Host in Electron, loads the same plugin-driven UI locally, and does not open an HTTP or WebSocket listening port. From a source checkout:
+The desktop application is a native distribution of the same Harness product, not a separate simplified UI. It keeps the existing Agent, session, tools, plugin graph, provider settings, and local-model support while replacing the browser carrier with an Electron boundary.
+
+| | Web | Desktop |
+| --- | --- | --- |
+| User interface | Browser tab | Independent Electron window |
+| Host process | `dsh web` CLI process | Embedded in the Electron main process |
+| RPC carrier | HTTP and WebSocket on loopback | Context-isolated Electron IPC |
+| Listening port | `127.0.0.1:3080` by default | None |
+| Node.js after installation | Required to run the CLI | Included in the application |
+| Current packaged target | Any supported Node.js platform | Apple silicon macOS (`arm64`) |
+
+Build the desktop application from the fork's rc.8 feature branch:
 
 ```sh
+git clone https://github.com/CosmicCoderDev/deepseek-harness.git
+cd deepseek-harness
+git switch feat/electron-desktop-rc8
+corepack enable
 pnpm install
 pnpm dist:desktop:mac
 ```
 
-The Apple silicon application, DMG, and ZIP are generated under `apps/desktop/dist`. The current preview build is unsigned, so macOS may require you to right-click the application and choose **Open** on first launch. See the [desktop application guide](apps/desktop/README.md) for installation, packaging, security boundaries, and current limitations.
+The command builds the shared Host and Web UI, creates the Electron application, generates DMG and ZIP artifacts under `apps/desktop/dist`, and smoke-tests the packaged Host and renderer with an empty temporary `DSH_HOME`. To install it, open the generated arm64 DMG, drag **DeepSeek Harness** to **Applications**, eject the image, and launch the application. The preview is unsigned, so use right-click → **Open** on first launch if Gatekeeper blocks it.
+
+For development without an installer, run `pnpm desktop`. Only Apple silicon macOS is currently validated; signing, notarization, automatic updates, Windows, Linux, and Intel macOS packaging remain future work. See the [desktop guide](apps/desktop/README.md) for architecture, security, local-model setup, testing, and troubleshooting.
 
 ## Configure a model
 
