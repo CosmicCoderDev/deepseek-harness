@@ -640,6 +640,24 @@ listDescendants(rootSessionId: SessionId, signal?: AbortSignal): Promise<Subagen
 registerProvider(provider: SubagentProvider): () => void
 
 /**
+ * Register a deployment-owned permission ceiling evaluated by
+ * permission-aware provider starts. A ceiling may only retain or reduce the
+ * requested tier; attempts to increase it fail closed.
+ * @param ceiling - synchronous policy receiving provider, cwd, and current tier.
+ * @returns the exact Cordis effect disposer.
+ */
+registerPermissionCeiling(ceiling: SubagentPermissionCeiling): () => void
+
+/**
+ * Resolve the effective provider-neutral permission tier. Every registered
+ * deployment policy is applied in registration order and can only narrow
+ * the preceding result.
+ * @param request - provider, canonical working directory, and configured tier.
+ * @returns the most restrictive valid tier selected by all ceilings.
+ */
+resolvePermissionTier(request: SubagentPermissionRequest): SubagentPermissionTier
+
+/**
  * Look up a provider by name.
  * @param name - the provider name.
  * @returns the provider, or undefined when absent.
@@ -667,7 +685,7 @@ async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
 
 Types: [Agent](core.md) · [ContentBlock](llm-streaming.md) · [MessageId](llm-streaming.md) · [SessionId](core.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:171`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:192`](../../packages/subagent/subagent/src/index.ts)
 
 <a id="subagent-events"></a>
 
@@ -693,7 +711,7 @@ A published child settled. Scope-filtered dispatch uses the same delegating pare
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:166`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:187`](../../packages/subagent/subagent/src/index.ts)
 
 <a id="subagentprovider-added--emit"></a>
 
@@ -710,7 +728,7 @@ A provider became resolvable in the registry.
 'subagent/provider-added'(provider: SubagentProvider): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:140`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:161`](../../packages/subagent/subagent/src/index.ts)
 
 <a id="subagentprovider-removed--emit"></a>
 
@@ -727,7 +745,7 @@ A provider left the registry. Accepted runs remain holder-owned.
 'subagent/provider-removed'(name: string): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:146`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:167`](../../packages/subagent/subagent/src/index.ts)
 
 <a id="subagentstart--emit"></a>
 
@@ -751,5 +769,5 @@ A provider established a published child. For in-process providers, `ctx.agents.
 
 Types: [Scoped](scope.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:157`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:178`](../../packages/subagent/subagent/src/index.ts)
 <!-- END GENERATED cordis-surface -->

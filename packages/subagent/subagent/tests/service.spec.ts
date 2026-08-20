@@ -13,6 +13,7 @@ import SubagentRuntime, {
   type ResolvedSubagentStartRequest,
   type SubagentCapabilities,
   type SubagentProvider,
+  type SubagentPermissionTier,
   type SubagentResult,
   type SubagentRun,
   type SubagentRunEndInfo,
@@ -88,6 +89,42 @@ describe('SubagentRuntime', () => {
     expect(added).toEqual(['alpha'])
     expect(removed).toEqual(['alpha'])
     expect(subagents.getProvider('alpha')).toBeUndefined()
+  })
+
+  it('composes permission ceilings without allowing authority expansion', async () => {
+    const { subagents } = await service()
+    const observed: SubagentPermissionTier[] = []
+    const dispose = subagents.registerPermissionCeiling((request) => {
+      observed.push(request.requested)
+      return request.cwd.startsWith('/restricted') ? 'read-only' : request.requested
+    })
+    subagents.registerPermissionCeiling(request => request.requested === 'full-access'
+      ? 'project-development'
+      : request.requested)
+
+    expect(subagents.resolvePermissionTier({
+      provider: 'codex', cwd: '/restricted/project', requested: 'full-access',
+    })).toBe('read-only')
+    expect(observed).toEqual(['full-access'])
+    dispose()
+    expect(subagents.resolvePermissionTier({
+      provider: 'codex', cwd: '/ordinary/project', requested: 'full-access',
+    })).toBe('project-development')
+    subagents.registerPermissionCeiling(() => 'full-access')
+    expect(() => subagents.resolvePermissionTier({
+      provider: 'claude-code', cwd: '/ordinary/project', requested: 'read-only',
+    })).toThrow('attempted to increase authority')
+  })
+
+  it('fails closed when a permission ceiling returns an invalid tier', async () => {
+    const { subagents } = await service()
+    for (const invalid of ['invalid', 'toString']) {
+      const dispose = subagents.registerPermissionCeiling(() => invalid as SubagentPermissionTier)
+      expect(() => subagents.resolvePermissionTier({
+        provider: 'codex', cwd: '/workspace', requested: 'full-access',
+      })).toThrow('invalid tier')
+      dispose()
+    }
   })
 
   it('rolls registration back when provider-added throws', async () => {

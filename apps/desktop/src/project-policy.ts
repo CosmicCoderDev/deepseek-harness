@@ -38,6 +38,20 @@ export function projectExecutionMode(policy: DesktopProjectPolicy): DesktopPrese
   return policy.defaultExecutionMode
 }
 
+/** Resolve the most specific configured permission cap containing a task cwd. */
+export function resolveProjectPermissionCap(
+  policies: ReadonlyMap<string, DesktopProjectPolicy>,
+  cwd: string,
+): SubagentPermission | undefined {
+  const normalizedCwd = normalizeRoot(cwd)
+  let selected: DesktopProjectPolicy | undefined
+  for (const policy of policies.values()) {
+    if (!isWithin(policy.projectRoot, normalizedCwd)) continue
+    if (selected === undefined || policy.projectRoot.length > selected.projectRoot.length) selected = policy
+  }
+  return selected?.permissionCap
+}
+
 const POLICY_FILE = 'desktop-project-policies.json'
 
 /** Create the least-authority editable draft for a project without enabling it. */

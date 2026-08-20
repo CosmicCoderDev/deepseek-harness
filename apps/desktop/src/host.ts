@@ -2,6 +2,7 @@
 
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
+import type { SubagentPermissionTier } from '@deepseek-ai/dsh-subagent'
 import { runProfile } from '@deepseek-ai/dsh/profile-boot'
 import { loadLayeredEnv } from '@deepseek-ai/dsh-app-boot'
 import { toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
@@ -21,7 +22,9 @@ export interface DesktopHost {
 const DESKTOP_PATCH = fileURLToPath(new URL('../config/desktop.patch.yml', import.meta.url))
 
 /** Boot the stock Web composition with its physical Web carrier replaced by Electron IPC. */
-export async function startDesktopHost(): Promise<DesktopHost> {
+export async function startDesktopHost(
+  permissionCap?: (cwd: string) => SubagentPermissionTier | undefined,
+): Promise<DesktopHost> {
   const { ctx } = await runProfile({
     environment: loadLayeredEnv('dsh'),
     profile: 'web',
@@ -33,6 +36,14 @@ export async function startDesktopHost(): Promise<DesktopHost> {
     bareModuleBaseUrl: import.meta.url,
   })
   try {
+    if (permissionCap !== undefined) {
+      const subagents = required(ctx, 'subagents') as {
+        registerPermissionCeiling(
+          ceiling: (request: { readonly cwd: string; readonly requested: SubagentPermissionTier }) => SubagentPermissionTier,
+        ): () => void
+      }
+      subagents.registerPermissionCeiling(request => permissionCap(request.cwd) ?? request.requested)
+    }
     const apiProxy = required(ctx, 'apiProxy') as Parameters<typeof toFetchHandler>[0]
     const connection = required(ctx, 'connection') as HostConnectionHandle
     const modules = required(ctx, 'clientModules') as ClientModuleRegistry

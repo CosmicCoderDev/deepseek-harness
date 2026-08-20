@@ -675,6 +675,35 @@ describe('task admission and package contracts', () => {
     await ctx.fiber.dispose()
   })
 
+  it('applies a deployment permission ceiling at each provider start', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentRuntime)
+    await ctx.plugin(LocalSubprocessRuntime)
+    const child = fakeChild()
+    vi.spyOn(ctx.subprocess, 'spawn').mockReturnValue(child.handle)
+    ctx.subagents.registerPermissionCeiling(({ cwd }) => cwd === process.cwd() ? 'read-only' : 'full-access')
+    await ctx.plugin(codex, { permissionMode: 'dangerously-bypass-approvals-and-sandbox' })
+
+    const controller = new AbortController()
+    const starting = ctx.subagents.start('codex', request(undefined, controller.signal))
+    const initialize = await child.peer.nextMethod('initialize')
+    child.peer.respond(initialize, { userAgent: 'codex-cli 0.147.0' })
+    await child.peer.nextMethod('initialized')
+    const threadStart = await child.peer.nextMethod('thread/start')
+    expect(threadStart.params).toEqual({
+      cwd: process.cwd(),
+      ephemeral: true,
+      approvalPolicy: 'never',
+    })
+    child.peer.respond(threadStart, { thread: { id: 'thread-ceiling', ephemeral: true } })
+    const run = await starting
+    await child.peer.nextMethod('turn/start')
+    controller.abort(new Error('ceiling test complete'))
+    await expect(run.result).resolves.toMatchObject({ stopReason: 'aborted' })
+    await run.dispose()
+    await ctx.fiber.dispose()
+  })
+
   it('keeps the namespace export shape and package-owned empty invariant', async () => {
     expect('default' in codex).toBe(false)
     expect(codex.name).toBe('subagent-codex')

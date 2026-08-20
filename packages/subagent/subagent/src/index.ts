@@ -126,6 +126,27 @@ export type { SubagentDescendantListEntry, SubagentListEntry } from './list-chil
 export type { SubagentRunEndInfo, SubagentRunInfo } from './types.ts'
 export type { SubagentIdentityProjection, SubagentTimingProjection } from './projection-types.ts'
 
+/** Provider-neutral authority tiers ordered from least to most permissive. */
+export type SubagentPermissionTier = 'read-only' | 'project-development' | 'full-access'
+
+/** Facts available to deployment-owned permission ceilings at provider start. */
+export interface SubagentPermissionRequest {
+  readonly provider: string
+  readonly cwd: string
+  readonly requested: SubagentPermissionTier
+}
+
+/** Deployment policy that may retain or reduce, but never increase, a request. */
+export type SubagentPermissionCeiling = (
+  request: SubagentPermissionRequest,
+) => SubagentPermissionTier
+
+const SUBAGENT_PERMISSION_RANK: Readonly<Record<SubagentPermissionTier, number>> = {
+  'read-only': 0,
+  'project-development': 1,
+  'full-access': 2,
+}
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
     subagents: SubagentRuntime
@@ -170,6 +191,7 @@ declare module '@deepseek-ai/cordis' {
 /** Named provider registry with one-shot runs, durable discovery, and continuable-child operations. */
 export class SubagentRuntime extends Service {
   private providers = new Map<string, SubagentProvider>()
+  private readonly permissionCeilings = new Set<SubagentPermissionCeiling>()
   private continuations: SubagentContinuationManager | undefined
   /** Deployment contributions composed into unpublished continuable children. */
   private readonly setupRegistry = new SubagentActivationSetupRegistry()
@@ -398,6 +420,45 @@ export class SubagentRuntime extends Service {
       // repository's fail-loud registration semantics.
       this.ctx.emit('subagent/provider-added', provider)
     }.bind(this), 'subagents.registerProvider()')
+  }
+
+  /**
+   * Register a deployment-owned permission ceiling evaluated by
+   * permission-aware provider starts. A ceiling may only retain or reduce the
+   * requested tier; attempts to increase it fail closed.
+   * @param ceiling - synchronous policy receiving provider, cwd, and current tier.
+   * @returns the exact Cordis effect disposer.
+   */
+  registerPermissionCeiling(ceiling: SubagentPermissionCeiling): () => void {
+    return this.ctx.effect(
+      () => {
+        this.permissionCeilings.add(ceiling)
+        return () => { this.permissionCeilings.delete(ceiling) }
+      },
+      'subagents.registerPermissionCeiling()',
+    )
+  }
+
+  /**
+   * Resolve the effective provider-neutral permission tier. Every registered
+   * deployment policy is applied in registration order and can only narrow
+   * the preceding result.
+   * @param request - provider, canonical working directory, and configured tier.
+   * @returns the most restrictive valid tier selected by all ceilings.
+   */
+  resolvePermissionTier(request: SubagentPermissionRequest): SubagentPermissionTier {
+    let effective = request.requested
+    for (const ceiling of this.permissionCeilings) {
+      const resolved = ceiling({ ...request, requested: effective })
+      if (!Object.hasOwn(SUBAGENT_PERMISSION_RANK, resolved)) {
+        throw new Error(`subagent permission ceiling returned an invalid tier: ${resolved}`)
+      }
+      if (SUBAGENT_PERMISSION_RANK[resolved] > SUBAGENT_PERMISSION_RANK[effective]) {
+        throw new Error('subagent permission ceiling attempted to increase authority')
+      }
+      effective = resolved
+    }
+    return effective
   }
 
   /**

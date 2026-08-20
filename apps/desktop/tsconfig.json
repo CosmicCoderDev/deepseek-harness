@@ -12,6 +12,7 @@
     { "path": "../../packages/host/apiproxy" },
     { "path": "../../packages/client/connection/tsconfig.host.json" },
     { "path": "../../packages/client/modules" },
+    { "path": "../../packages/subagent/subagent" },
     { "path": "../cli" }
   ]
 }

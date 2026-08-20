@@ -604,6 +604,32 @@ describe('task admission and package contracts', () => {
     await ctx.fiber.dispose()
   })
 
+  it('applies a deployment permission ceiling at each provider start', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentRuntime)
+    await ctx.plugin(LocalSubprocessRuntime)
+    const child = fakeChild()
+    vi.spyOn(ctx.subprocess, 'spawn').mockReturnValue(child.handle)
+    ctx.subagents.registerPermissionCeiling(({ cwd }) => cwd === process.cwd() ? 'read-only' : 'full-access')
+    await ctx.plugin(claudeCode, { permissionMode: 'bypassPermissions' })
+    queryMock.mockImplementationOnce(({ options }) => {
+      options.spawnClaudeCodeProcess!(sdkSpawnOptions({
+        cwd: options.cwd!, env: options.env!, signal: options.abortController!.signal,
+      }))
+      return queryFrom([success(`mode:${options.permissionMode}`)])
+    })
+
+    const run = await ctx.subagents.start('claude-code', request())
+    child.settle({ exitCode: 0, signal: null })
+    await expect(run.result).resolves.toEqual({
+      output: [{ type: 'text', text: 'mode:plan' }],
+      stopReason: 'completed',
+    })
+    expect(queryMock.mock.calls.at(-1)?.[0].options.permissionMode).toBe('plan')
+    await run.dispose()
+    await ctx.fiber.dispose()
+  })
+
   it('starts through the registered provider with its resolved config and diagnostics', async () => {
     const ctx = new Context()
     await ctx.plugin(SubagentRuntime)

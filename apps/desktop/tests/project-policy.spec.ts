@@ -6,6 +6,7 @@ import {
   defaultProjectPolicy,
   projectExecutionMode,
   readProjectPolicies,
+  resolveProjectPermissionCap,
   validateProjectPolicy,
   writeProjectPolicies,
   type DesktopProjectPolicy,
@@ -42,6 +43,19 @@ describe('desktop project policies', () => {
       defaultExecutionMode: 'codex-direct',
       crossReview: true,
     })).toBe('codex-claude-review')
+  })
+
+  it('resolves the most specific permission cap for a task working directory', () => {
+    const root = { ...policy('/workspace'), permissionCap: 'project-development' as const }
+    const nested = { ...policy('/workspace/restricted'), permissionCap: 'read-only' as const }
+    const policies = new Map<string, DesktopProjectPolicy>([
+      [root.projectRoot, root],
+      [nested.projectRoot, nested],
+    ])
+
+    expect(resolveProjectPermissionCap(policies, '/workspace/source')).toBe('project-development')
+    expect(resolveProjectPermissionCap(policies, '/workspace/restricted/source')).toBe('read-only')
+    expect(resolveProjectPermissionCap(policies, '/unconfigured')).toBeUndefined()
   })
 
   it('rejects credentials and write roots outside the read boundary', () => {

@@ -60,6 +60,7 @@ import {
   defaultProjectPolicy,
   projectExecutionMode,
   readProjectPolicies,
+  resolveProjectPermissionCap,
   validateProjectPolicy,
   writeProjectPolicies,
   type DesktopProjectPolicy,
@@ -98,6 +99,10 @@ let projectPolicies: ReadonlyMap<string, DesktopProjectPolicy> = new Map()
 let restartRequired = false
 let hostRestarting = false
 const activeRequests = new Map<string, { controller: AbortController; url: string }>()
+
+function projectPermissionCap(cwd: string): DesktopProjectPolicy['permissionCap'] | undefined {
+  return resolveProjectPermissionCap(projectPolicies, cwd)
+}
 
 function installApplicationMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate([
@@ -614,7 +619,7 @@ async function restartDesktopHost(): Promise<void> {
     recordDesktopDiagnostic('info', 'desktop Host restart requested')
     await stopHost()
     applySubagentPermission(desktopSettings.subagentPermission)
-    host = await startDesktopHost()
+    host = await startDesktopHost(projectPermissionCap)
     restartRequired = false
     await openDesktop(false)
     recordDesktopDiagnostic('info', 'desktop Host restarted')
@@ -624,7 +629,7 @@ async function restartDesktopHost(): Promise<void> {
     desktopSettings = safe
     await writeDesktopSettings(proxyHome, safe)
     applySubagentPermission('read-only')
-    host = await startDesktopHost().catch((recoveryError: unknown) => {
+    host = await startDesktopHost(projectPermissionCap).catch((recoveryError: unknown) => {
       recordDesktopDiagnostic('error', 'desktop Host safe recovery failed', recoveryError)
       return undefined
     })
@@ -800,7 +805,7 @@ if (!ownsInstance) {
     if (await ensureDesktopPreset(join(app.getAppPath(), 'config'), dshHome)) {
       recordDesktopDiagnostic('info', 'desktop Codex + Claude Code preset installed')
     }
-    host = await startDesktopHost()
+    host = await startDesktopHost(projectPermissionCap)
     recordDesktopDiagnostic('info', 'in-process Host started')
     installIpc()
     installPluginProtocol()

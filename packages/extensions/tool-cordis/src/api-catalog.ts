@@ -1760,6 +1760,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the exact Cordis effect disposer.',
       },
       {
+        signature: 'registerPermissionCeiling(ceiling: SubagentPermissionCeiling): () => void',
+        description: 'Register a deployment-owned permission ceiling evaluated by permission-aware provider starts. A ceiling may only retain or reduce the requested tier; attempts to increase it fail closed.',
+        parameters: [{ name: 'ceiling', description: 'synchronous policy receiving provider, cwd, and current tier.' }],
+        returns: 'the exact Cordis effect disposer.',
+      },
+      {
+        signature: 'resolvePermissionTier(request: SubagentPermissionRequest): SubagentPermissionTier',
+        description: 'Resolve the effective provider-neutral permission tier. Every registered deployment policy is applied in registration order and can only narrow the preceding result.',
+        parameters: [{ name: 'request', description: 'provider, canonical working directory, and configured tier.' }],
+        returns: 'the most restrictive valid tier selected by all ceilings.',
+      },
+      {
         signature: 'getProvider(name: string): SubagentProvider | undefined',
         description: 'Look up a provider by name.',
         parameters: [{ name: 'name', description: 'the provider name.' }],
@@ -4261,6 +4273,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type SubagentInterruptAuthority = {\n    readonly kind: \'user\';\n    readonly parentSessionId: SessionId;\n} | {\n    readonly kind: \'ancestor\';\n    readonly agent: Agent;\n};',
   },
   {
+    name: 'SubagentPermissionCeiling',
+    declaration: 'export type SubagentPermissionCeiling = (request: SubagentPermissionRequest) => SubagentPermissionTier;',
+  },
+  {
+    name: 'SubagentPermissionRequest',
+    declaration: 'export interface SubagentPermissionRequest {\n    readonly provider: string;\n    readonly cwd: string;\n    readonly requested: SubagentPermissionTier;\n}',
+  },
+  {
+    name: 'SubagentPermissionTier',
+    declaration: 'export type SubagentPermissionTier = \'read-only\' | \'project-development\' | \'full-access\';',
+  },
+  {
     name: 'SubagentProvider',
     declaration: 'export interface SubagentProvider {\n    readonly name: string;\n    readonly capabilities: SubagentCapabilities;\n    readonly inheritsParentContext: boolean;\n    start(request: ResolvedSubagentStartRequest): Promise<SubagentRun>;\n    prepareContinuable?(request: ContinuableCreateRequest): Promise<ContinuableCreateSpec>;\n}',
   },
@@ -4294,7 +4318,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubagentRuntime',
-    declaration: 'export class SubagentRuntime extends Service {\n    constructor(ctx: Context);\n    async startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart>;\n    async followup(parent: Agent, childId: SessionId, content: ContentBlock[], options: SubagentFollowupOptions): Promise<MessageId>;\n    interrupt(targetSessionId: SessionId, authority: SubagentInterruptAuthority): void;\n    async reportFrom(child: Agent, content: ContentBlock[], options: SubagentReportOptions): Promise<MessageId>;\n    registerContinuableSetup(contribution: ContinuableSetupContribution): () => void;\n    async drainContinuableDescendants(parents: readonly Agent[]): Promise<void>;\n    async drainContinuableChildren(parent: Agent, childIds: readonly SessionId[]): Promise<void>;\n    listChildren(parentSessionId: SessionId, signal?: AbortSignal): Promise<SubagentListEntry[]>;\n    listDescendants(rootSessionId: SessionId, signal?: AbortSignal): Promise<SubagentDescendantListEntry[]>;\n    registerProvider(provider: SubagentProvider): () => void;\n    getProvider(name: string): SubagentProvider | undefined;\n    list(): string[];\n    async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>;\n}',
+    declaration: 'export class SubagentRuntime extends Service {\n    constructor(ctx: Context);\n    async startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart>;\n    async followup(parent: Agent, childId: SessionId, content: ContentBlock[], options: SubagentFollowupOptions): Promise<MessageId>;\n    interrupt(targetSessionId: SessionId, authority: SubagentInterruptAuthority): void;\n    async reportFrom(child: Agent, content: ContentBlock[], options: SubagentReportOptions): Promise<MessageId>;\n    registerContinuableSetup(contribution: ContinuableSetupContribution): () => void;\n    async drainContinuableDescendants(parents: readonly Agent[]): Promise<void>;\n    async drainContinuableChildren(parent: Agent, childIds: readonly SessionId[]): Promise<void>;\n    listChildren(parentSessionId: SessionId, signal?: AbortSignal): Promise<SubagentListEntry[]>;\n    listDescendants(rootSessionId: SessionId, signal?: AbortSignal): Promise<SubagentDescendantListEntry[]>;\n    registerProvider(provider: SubagentProvider): () => void;\n    registerPermissionCeiling(ceiling: SubagentPermissionCeiling): () => void;\n    resolvePermissionTier(request: SubagentPermissionRequest): SubagentPermissionTier;\n    getProvider(name: string): SubagentProvider | undefined;\n    list(): string[];\n    async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>;\n}',
   },
   {
     name: 'SubagentStartRequest',

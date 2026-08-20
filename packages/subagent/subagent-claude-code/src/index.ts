@@ -15,6 +15,7 @@ import {
   resolveChildCwd,
   type ResolvedSubagentStartRequest,
   type SubagentCapabilities,
+  type SubagentPermissionTier,
   type SubagentProvider,
 } from '@deepseek-ai/dsh-subagent'
 import {
@@ -106,7 +107,11 @@ class ClaudeCodeProvider implements SubagentProvider {
     }
     const spec: ClaudeCodeRunSpec = {
       cwd,
-      permissionMode: this.config.permissionMode,
+      permissionMode: cappedPermissionMode(this.config.permissionMode, this.ctx.subagents.resolvePermissionTier({
+        provider: this.name,
+        cwd,
+        requested: permissionTierForMode(this.config.permissionMode),
+      })),
       env: this.config.env,
       disposeGraceMs: this.config.disposeGraceMs,
       spawn: spawnSpec => this.ctx.subprocess.spawn(spawnSpec),
@@ -119,6 +124,25 @@ class ClaudeCodeProvider implements SubagentProvider {
     }
     return startClaudeCodeRun(request, spec)
   }
+}
+
+function permissionTierForMode(mode: ClaudeCodePermissionMode): SubagentPermissionTier {
+  if (mode === 'bypassPermissions') return 'full-access'
+  if (mode === 'acceptEdits' || mode === 'auto') return 'project-development'
+  return 'read-only'
+}
+
+function permissionModeForTier(tier: SubagentPermissionTier): ClaudeCodePermissionMode {
+  if (tier === 'full-access') return 'bypassPermissions'
+  if (tier === 'project-development') return 'acceptEdits'
+  return 'plan'
+}
+
+function cappedPermissionMode(
+  configured: ClaudeCodePermissionMode,
+  effective: SubagentPermissionTier,
+): ClaudeCodePermissionMode {
+  return permissionTierForMode(configured) === effective ? configured : permissionModeForTier(effective)
 }
 
 /**

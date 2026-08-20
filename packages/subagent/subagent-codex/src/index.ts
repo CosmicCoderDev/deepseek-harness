@@ -15,6 +15,7 @@ import {
   resolveChildCwd,
   type ResolvedSubagentStartRequest,
   type SubagentCapabilities,
+  type SubagentPermissionTier,
   type SubagentProvider,
 } from '@deepseek-ai/dsh-subagent'
 import {
@@ -91,7 +92,11 @@ class CodexProvider implements SubagentProvider {
     }
     const spec: CodexRunSpec = {
       cwd,
-      permissionMode: this.config.permissionMode,
+      permissionMode: cappedPermissionMode(this.config.permissionMode, this.ctx.subagents.resolvePermissionTier({
+        provider: this.name,
+        cwd,
+        requested: permissionTierForMode(this.config.permissionMode),
+      })),
       env: this.config.env,
       disposeGraceMs: this.config.disposeGraceMs,
       spawn: spawnSpec => this.ctx.subprocess.spawn(spawnSpec),
@@ -103,6 +108,25 @@ class CodexProvider implements SubagentProvider {
     }
     return startCodexRun(request, spec)
   }
+}
+
+function permissionTierForMode(mode: CodexPermissionMode): SubagentPermissionTier {
+  if (mode === 'dangerously-bypass-approvals-and-sandbox') return 'full-access'
+  if (mode === 'approve-for-me') return 'project-development'
+  return 'read-only'
+}
+
+function permissionModeForTier(tier: SubagentPermissionTier): CodexPermissionMode {
+  if (tier === 'full-access') return 'dangerously-bypass-approvals-and-sandbox'
+  if (tier === 'project-development') return 'approve-for-me'
+  return 'never'
+}
+
+function cappedPermissionMode(
+  configured: CodexPermissionMode,
+  effective: SubagentPermissionTier,
+): CodexPermissionMode {
+  return permissionTierForMode(configured) === effective ? configured : permissionModeForTier(effective)
 }
 
 /**

@@ -18,6 +18,8 @@ A narrow settings preload API lets the renderer select a directory, load its saf
 
 The main-window preload additionally exposes only policy resolution by absolute project root. The Connection client owns that native carrier detail and publishes a transport-neutral `resolveProjectPolicy` service method; the agent-preset UI consumes the declared Connection service instead of reading Electron globals. Resolution applies only to a blank session. An explicit session choice has priority, including when it is applied while a policy lookup is pending. Network denial resolves to the local-only preset and cross-review resolves to the fixed Codex-to-Claude review preset.
 
+The shared subagent runtime also exposes an effect-scoped permission-ceiling registry. At Host boot, the desktop carrier registers a synchronous resolver backed by the current in-memory project-policy map. Every Codex and Claude Code start derives the task workspace from the immutable parent-session `cwd`, resolves the most specific containing project root, and applies that project's logical permission cap after the globally configured provider mode. Ceiling contributions compose in registration order and may only retain or reduce authority; an invalid tier or attempted increase fails closed. When no project policy contains the task workspace, the exact configured native provider mode is preserved.
+
 ## Alternatives considered
 
 **Write a policy file into every repository.** Rejected because customer repositories should not be mutated merely by opening desktop settings and teams may not want local product policy committed.
@@ -28,4 +30,4 @@ The main-window preload additionally exposes only policy resolution by absolute 
 
 ## Consequences
 
-The storage, validation, settings surface, and default execution-mode resolution are independently testable and credential-free. Permission caps, project proxy overrides, and read/write roots remain policy drafts until the Host execution and sandbox layers consume them; the application must not claim those fields are enforced yet.
+The storage, validation, settings surface, default execution-mode resolution, and cloud-subagent permission ceiling are independently testable and credential-free. A global full-access setting can therefore be narrowed to project-development or read-only for a specific project, while a project can never use its policy to broaden a safer global setting. The ceiling currently governs the bundled one-shot Codex and Claude Code providers. Project proxy overrides and read/write roots remain policy drafts until their Host networking and sandbox layers consume them; direct Host tool confinement is likewise owned by the later sandbox stage rather than this provider boundary.
