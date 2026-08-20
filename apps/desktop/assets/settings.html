@@ -124,7 +124,7 @@
   $('copy').onclick = async () => { await api.copyDiagnostics(); $('notice').textContent = '诊断信息已复制并自动脱敏。' }
   $('logs').onclick = () => api.openLogs()
   load().catch(error => { $('notice').textContent = error.message || String(error) })
-  api.onStatusChanged(() => { if (!document.hidden) refreshStatus().catch(() => {}) })
+  api.onStatusChanged(() => { if (!document.hidden) refreshStatus().catch(() => { /* background push refresh; the next status-changed event or manual refresh click retries, and there is no notice affordance for a push-triggered failure */ }) })
 </script>
 </body>
 </html>

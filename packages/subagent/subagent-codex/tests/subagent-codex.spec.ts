@@ -74,6 +74,22 @@ describe('Codex safe startup diagnostics', () => {
     expect(error.message).toContain('category: node-wrapper')
     expect(error.message).not.toContain('SECRET_TOKEN')
   })
+
+  it('categorizes dependency, auth, timeout, and network startup failures', () => {
+    expect(codexStartupFailure(new Error('Error: Cannot find package SECRET_TOKEN')).message)
+      .toContain('category: dependency-missing')
+    expect(codexStartupFailure(new Error('not logged in — SECRET_TOKEN')).message)
+      .toContain('category: authentication')
+    expect(codexStartupFailure(new Error('request timed out after SECRET_TOKEN ms')).message)
+      .toContain('category: timeout')
+    expect(codexStartupFailure(new Error('ECONNREFUSED reaching SECRET_TOKEN')).message)
+      .toContain('category: network')
+  })
+
+  it('categorizes a non-Error cause as unknown', () => {
+    expect(codexStartupFailure('SECRET_TOKEN string cause').message)
+      .toContain('category: unknown')
+  })
 })
 const CODEX_PLATFORM_PACKAGES = [
   '@openai/codex-darwin-arm64',

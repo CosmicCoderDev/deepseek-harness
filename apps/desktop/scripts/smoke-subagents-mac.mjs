@@ -81,7 +81,10 @@ async function environmentWithSystemProxy(source) {
       env.ALL_PROXY = `socks5://${socksHost}:${socksPort}`
       env.all_proxy = env.ALL_PROXY
     }
-  } catch {}
+  } catch {
+    // Swallow scutil failures (missing binary, timeout, unparseable output): the
+    // smoke script proceeds without a detected system proxy rather than failing.
+  }
   env.NO_PROXY ??= '127.0.0.1,localhost,::1,.local'
   env.no_proxy ??= env.NO_PROXY
   return env

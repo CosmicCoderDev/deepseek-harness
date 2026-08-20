@@ -82,7 +82,7 @@ export function replaceProxyEnvironment(
 export function applySystemProxy(environment: NodeJS.ProcessEnv = process.env): ProxyEnvironment {
   const detected = readSystemProxy()
   const applied: Record<string, string> = {}
-  for (const [upper, detectedValue] of Object.entries(detected)) {
+  for (const [upper, detectedValue] of Object.entries(detected) as [string, string | undefined][]) {
     if (detectedValue === undefined) continue
     const lower = upper.toLowerCase()
     const selected = environment[upper] ?? environment[lower] ?? detectedValue

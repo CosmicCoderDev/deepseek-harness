@@ -417,6 +417,111 @@ describe('connection node half', () => {
     await remove()
     await fiber.dispose()
   })
+
+  it('creates a local dispatcher that layers dedicated channels, interceptor claims, and the api fallback', async () => {
+    const ctx = new Context()
+    const routes: WebRoute[] = []
+    ctx.provide('webServer', fakeHttpServer(routes, []) as WebServer)
+    ctx.provide('apiProxy', {} as unknown as ApiProxy)
+    const fiber = ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
+    const connection = ctx.get('connection') as HostConnectionHandle
+
+    let fallbackCalls = 0
+    const fallback = {
+      fetch: async (request: Request) => {
+        fallbackCalls++
+        return new Response(`fallback:${new URL(request.url).pathname}`, { status: 200 })
+      },
+    }
+    const local = connection.createLocalFetchHandler(fallback)
+
+    // Exact /api pathname carries no endpoint segment, so the interceptor
+    // lookup short-circuits on `endpoint === undefined` and falls to the api
+    // handler's fallback.
+    const exact = await local.fetch(new Request('http://internal/api'))
+    expect(await exact.text()).toBe('fallback:/api')
+    expect(fallbackCalls).toBe(1)
+
+    // /api endpoint with no interceptor registered at all.
+    const noInterceptor = await local.fetch(new Request('http://internal/api/session.list'))
+    expect(await noInterceptor.text()).toBe('fallback:/api/session.list')
+    expect(fallbackCalls).toBe(2)
+
+    const interceptorCalls: unknown[] = []
+    const removeInterceptor = connection.rpc.intercept(
+      '/api',
+      endpoint => endpoint === 'goals/create',
+      async (endpoint, payload) => {
+        interceptorCalls.push({ endpoint, payload })
+        return { ok: true, value: { claimed: true } }
+      },
+      { authority: 'trusted-host' },
+    )
+
+    const claimed = await local.fetch(new Request('http://internal/api/goals/create', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'client-request', rpcId: 'r1', method: 'goals/create', payload: { args: {} } }),
+    }))
+    expect(await claimed.json()).toMatchObject({ result: { ok: true, value: { claimed: true } } })
+    expect(interceptorCalls).toEqual([{ endpoint: 'goals/create', payload: { args: {} } }])
+
+    // Same interceptor present, but an endpoint it does not claim falls to the fallback.
+    const unclaimed = await local.fetch(new Request('http://internal/api/session.list'))
+    expect(await unclaimed.text()).toBe('fallback:/api/session.list')
+    expect(fallbackCalls).toBe(3)
+
+    const channelCalls: unknown[] = []
+    const removeChannel = connection.rpc.handle('/rpc', async (endpoint, payload) => {
+      channelCalls.push({ endpoint, payload })
+      return { ok: true, value: { viaChannel: true } }
+    }, { authority: 'trusted-host' })
+    const viaChannel = await local.fetch(new Request('http://internal/rpc/ping', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'client-request', rpcId: 'r2', method: 'ping', payload: {} }),
+    }))
+    expect(await viaChannel.json()).toMatchObject({ result: { ok: true, value: { viaChannel: true } } })
+    expect(channelCalls).toEqual([{ endpoint: 'ping', payload: {} }])
+
+    // Neither a claimed /api endpoint nor a dedicated channel.
+    const notFound = await local.fetch(new Request('http://internal/unknown/path'))
+    expect(notFound.status).toBe(404)
+    expect(await notFound.text()).toBe('not found')
+
+    await removeInterceptor()
+    await removeChannel()
+    await fiber.dispose()
+  })
+
+  it('registers a dedicated channel without requiring a Web server present', async () => {
+    const ctx = new Context()
+    ctx.provide('apiProxy', {} as unknown as ApiProxy)
+    const fiber = ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
+    const connection = ctx.get('connection') as HostConnectionHandle
+
+    const calls: unknown[] = []
+    const remove = connection.rpc.handle('/rpc', async (endpoint, payload) => {
+      calls.push({ endpoint, payload })
+      return { ok: true, value: { accepted: true } }
+    }, { authority: 'trusted-host' })
+
+    const local = connection.createLocalFetchHandler({
+      fetch: async () => new Response('fallback', { status: 200 }),
+    })
+    const response = await local.fetch(new Request('http://internal/rpc/ping', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'client-request', rpcId: 'r3', method: 'ping', payload: {} }),
+    }))
+    expect(await response.json()).toMatchObject({ result: { ok: true, value: { accepted: true } } })
+    expect(calls).toEqual([{ endpoint: 'ping', payload: {} }])
+
+    await remove()
+    await fiber.dispose()
+  })
 })
 
 describe('connection node half over a real HTTP server', () => {

@@ -73,4 +73,77 @@ describe('desktop IPC Fetch carrier', () => {
     expect(listener).toBeUndefined()
     expect(aborted).toHaveLength(1)
   })
+
+  it('throws immediately for an already-aborted signal, keeping an Error reason as-is', async () => {
+    const bridge: DesktopBridge = {
+      request: async () => { throw new Error('must not reach the bridge') },
+      subscribe: () => () => undefined,
+      abort: () => undefined,
+    }
+    const controller = new AbortController()
+    const reason = new Error('cancelled by caller')
+    controller.abort(reason)
+
+    await expect(desktopFetch(bridge, new URL('http://dsh.internal/api/session.list'), { signal: controller.signal }))
+      .rejects.toBe(reason)
+  })
+
+  it('falls back to a generic abort error when the signal reason is not an Error', async () => {
+    const bridge: DesktopBridge = {
+      request: async () => { throw new Error('must not reach the bridge') },
+      subscribe: () => () => undefined,
+      abort: () => undefined,
+    }
+    const controller = new AbortController()
+    controller.abort('cancelled') // non-Error reason
+
+    await expect(desktopFetch(bridge, new URL('http://dsh.internal/api/session.list'), { signal: controller.signal }))
+      .rejects.toThrow('This operation was aborted')
+  })
+
+  it('returns a null-bodied Response when the IPC layer reports no body', async () => {
+    const bridge: DesktopBridge = {
+      request: async () => ({ status: 204, headers: [], stream: false }),
+      subscribe: () => () => undefined,
+      abort: () => undefined,
+    }
+
+    const response = await desktopFetch(bridge, new URL('http://dsh.internal/api/session.list'))
+
+    expect(response.status).toBe(204)
+    expect(await response.text()).toBe('')
+  })
+
+  it('errors the stream when the preload reports a stream error', async () => {
+    const bridge: DesktopBridge = {
+      request: async () => ({ status: 200, headers: [], stream: true }),
+      subscribe(_id, listener) {
+        queueMicrotask(() => { listener({ type: 'error', message: 'ipc broke' }) })
+        return () => undefined
+      },
+      abort: () => undefined,
+    }
+
+    const response = await desktopFetch(bridge, new URL('http://dsh.internal/api/events.host'))
+
+    await expect(response.text()).rejects.toThrow('ipc broke')
+  })
+
+  it('propagates a bridge.request failure and detaches its abort listener', async () => {
+    const aborted: string[] = []
+    const bridge: DesktopBridge = {
+      request: async () => { throw new Error('ipc transport down') },
+      subscribe: () => () => undefined,
+      abort: (id) => { aborted.push(id) },
+    }
+    const controller = new AbortController()
+
+    await expect(desktopFetch(bridge, new URL('http://dsh.internal/api/session.list'), { signal: controller.signal }))
+      .rejects.toThrow('ipc transport down')
+
+    // The listener registered before the request must be gone: aborting after
+    // the rejection must not still reach the bridge.
+    controller.abort()
+    expect(aborted).toHaveLength(0)
+  })
 })

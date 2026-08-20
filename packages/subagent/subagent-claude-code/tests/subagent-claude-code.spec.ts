@@ -68,6 +68,20 @@ describe('Claude Code safe startup diagnostics', () => {
     expect(error.message).toContain('category: authentication')
     expect(error.message).not.toContain('SECRET_TOKEN')
   })
+
+  it('categorizes dependency, timeout, and network startup failures', () => {
+    expect(claudeCodeStartupFailure(new Error('Error: Cannot find package SECRET_TOKEN')).message)
+      .toContain('category: dependency-missing')
+    expect(claudeCodeStartupFailure(new Error('request timed out after SECRET_TOKEN ms')).message)
+      .toContain('category: timeout')
+    expect(claudeCodeStartupFailure(new Error('ECONNREFUSED reaching SECRET_TOKEN')).message)
+      .toContain('category: network')
+  })
+
+  it('categorizes a non-Error cause as unknown', () => {
+    expect(claudeCodeStartupFailure('SECRET_TOKEN string cause').message)
+      .toContain('category: unknown')
+  })
 })
 const CLAUDE_CODE_VERSION = '2.1.220'
 const CLAUDE_PLATFORM_PACKAGES = [
