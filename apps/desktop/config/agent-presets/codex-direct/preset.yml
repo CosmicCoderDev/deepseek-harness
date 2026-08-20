@@ -1,0 +1,3 @@
+name: Codex 直接模式
+description: 正常输入任务即可强制交给 Codex 执行，无需编写专用提示词。
+order: 6

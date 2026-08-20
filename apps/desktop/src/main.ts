@@ -31,6 +31,7 @@ import {
 } from './onboarding.ts'
 import { applySystemProxy } from './system-proxy.ts'
 import { formatSubagentStatus, inspectSubagents } from './subagent-status.ts'
+import { ensureDesktopPreset } from './desktop-preset.ts'
 
 const APP_NAME = 'DeepSeek Harness'
 const SMOKE_TEST = process.argv.includes('--smoke-test')
@@ -429,6 +430,10 @@ if (!ownsInstance) {
     const proxy = applySystemProxy()
     if (Object.keys(proxy).length > 0) {
       recordDesktopDiagnostic('info', 'macOS system proxy imported for CLI subprocesses')
+    }
+    const dshHome = process.env.DSH_HOME ?? join(app.getPath('home'), '.dsh')
+    if (await ensureDesktopPreset(join(app.getAppPath(), 'config'), dshHome)) {
+      recordDesktopDiagnostic('info', 'desktop Codex + Claude Code preset installed')
     }
     host = await startDesktopHost()
     recordDesktopDiagnostic('info', 'in-process Host started')

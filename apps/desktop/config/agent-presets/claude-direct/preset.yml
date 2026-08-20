@@ -1,0 +1,3 @@
+name: Claude Code 直接模式
+description: 正常输入任务即可强制交给 Claude Code 执行，无需编写专用提示词。
+order: 7
