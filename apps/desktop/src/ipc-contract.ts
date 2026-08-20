@@ -30,6 +30,9 @@ export const IPC_SETTINGS_TEST = 'dsh:settings:test'
 export const IPC_SETTINGS_COPY_DIAGNOSTICS = 'dsh:settings:copy-diagnostics'
 export const IPC_SETTINGS_OPEN_LOGS = 'dsh:settings:open-logs'
 export const IPC_SETTINGS_LOGIN = 'dsh:settings:login'
+export const IPC_SETTINGS_REFRESH_STATUS = 'dsh:settings:refresh-status'
+export const IPC_SETTINGS_RESTART_HOST = 'dsh:settings:restart-host'
+export const IPC_SETTINGS_STATUS_CHANGED = 'dsh:settings:status-changed'
 
 export type DesktopSubagentProduct = 'codex' | 'claude'
 
@@ -42,4 +45,7 @@ export interface DesktopSettingsView {
   readonly proxySummary: string
   readonly codex: { readonly installed: boolean; readonly authenticated: boolean; readonly detail: string }
   readonly claude: { readonly installed: boolean; readonly authenticated: boolean; readonly detail: string }
+  readonly statusCheckedAt: string
+  readonly restartRequired: boolean
+  readonly recoveryWarning?: string
 }

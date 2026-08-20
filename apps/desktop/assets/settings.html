@@ -46,7 +46,7 @@
     <p class="hint">权限在下次启动桌面 Host 时生效。完全访问保存时需要再次确认。</p>
   </section>
   <section><h2>连接与诊断</h2><div><button id="test">测试四项连接</button><button id="copy">复制脱敏诊断</button><button id="logs">打开日志目录</button></div><pre id="testResult" hidden></pre></section>
-  <div class="actions"><button class="primary" id="save">保存设置</button><span id="notice"></span></div>
+  <div class="actions"><button class="primary" id="save">保存设置</button><button id="restart" hidden>立即重启 Host</button><span id="notice"></span></div>
 </main>
 <script>
   const api = window.__DSH_SETTINGS__
@@ -61,14 +61,14 @@
     $('proxyUrl').value = view.settings.proxy.url || ''
     document.querySelector(`input[name=permission][value=${view.settings.subagentPermission}]`).checked = true
     $('proxySummary').textContent = view.proxySummary
-    syncManual(); $('notice').textContent = ''
+    syncManual(); $('restart').hidden = !view.restartRequired; $('notice').textContent = view.recoveryWarning || ''
   }
   function renderStatus() { $('codex').innerHTML = service('Codex', view.codex); $('claude').innerHTML = service('Claude Code', view.claude); $('proxySummary').textContent = view.proxySummary }
   async function refreshStatus() { const fresh = await api.get(); view = { ...view, ...fresh, settings: view.settings }; renderStatus() }
   function selected(name) { return document.querySelector(`input[name=${name}]:checked`).value }
   function syncManual() { $('proxyUrl').disabled = selected('proxy') !== 'manual' }
   document.querySelectorAll('input[name=proxy]').forEach(input => input.addEventListener('change', syncManual))
-  $('refresh').onclick = refreshStatus
+  $('refresh').onclick = async () => { view = await api.refreshStatus(); renderStatus() }
   async function login(product) { $('notice').textContent = '正在打开终端登录…'; try { await api.login(product); $('notice').textContent = '终端已打开。登录完成后点击“刷新状态”。' } catch (error) { $('notice').textContent = error.message || String(error) } }
   $('loginCodex').onclick = () => login('codex')
   $('loginClaude').onclick = () => login('claude')
@@ -77,14 +77,15 @@
     if (permission === 'full-access') confirmed = confirm('完全访问会绕过 Codex 与 Claude Code 的原生审批和沙箱。确认只在受控项目中启用吗？')
     if (permission === 'full-access' && !confirmed) { $('notice').textContent = '已取消完全访问设置。'; return }
     const mode = selected('proxy'); const proxy = mode === 'manual' ? { mode, url: $('proxyUrl').value } : { mode }
-    try { view = await api.save({ version: 1, proxy, subagentPermission: permission }, confirmed); $('proxySummary').textContent = view.proxySummary; $('notice').textContent = '已保存。权限将在下次启动时生效。' }
+    try { view = await api.save({ version: 1, proxy, subagentPermission: permission }, confirmed); $('proxySummary').textContent = view.proxySummary; $('restart').hidden = !view.restartRequired; $('notice').textContent = view.restartRequired ? '已保存。点击“立即重启 Host”使权限生效。' : '已保存并生效。' }
     catch (error) { $('notice').textContent = error.message || String(error) }
   }
+  $('restart').onclick = async () => { $('restart').disabled = true; $('notice').textContent = '正在安全重启 Host…'; try { view = await api.restartHost(); $('restart').hidden = !view.restartRequired; $('notice').textContent = 'Host 已重启，新权限已生效。' } catch (error) { $('notice').textContent = error.message || String(error) } finally { $('restart').disabled = false } }
   $('test').onclick = async () => { $('test').disabled = true; $('testResult').hidden = false; $('testResult').textContent = '正在测试…'; try { $('testResult').textContent = await api.test() } finally { $('test').disabled = false } }
   $('copy').onclick = async () => { await api.copyDiagnostics(); $('notice').textContent = '诊断信息已复制并自动脱敏。' }
   $('logs').onclick = () => api.openLogs()
   load().catch(error => { $('notice').textContent = error.message || String(error) })
-  setInterval(() => { if (!document.hidden) refreshStatus().catch(() => {}) }, 5000)
+  api.onStatusChanged(() => { if (!document.hidden) refreshStatus().catch(() => {}) })
 </script>
 </body>
 </html>

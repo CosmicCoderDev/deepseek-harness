@@ -1,6 +1,6 @@
 /** Launch the packaged app with an empty Harness home so workspace links cannot mask missing files. */
 
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -11,6 +11,9 @@ const executable = join(appPath, 'Contents', 'MacOS', productName)
 const isolatedHome = await mkdtemp(join(tmpdir(), 'dsh-desktop-smoke-'))
 
 try {
+  const dshHome = join(isolatedHome, '.dsh')
+  await mkdir(dshHome, { recursive: true })
+  await writeFile(join(dshHome, 'desktop-settings.json'), '{corrupt-settings}\n')
   const result = await launch(executable, isolatedHome)
   process.stdout.write(result.stdout)
   process.stderr.write(result.stderr)
@@ -19,6 +22,10 @@ try {
   }
   if (!result.stdout.includes('[desktop] packaged smoke test passed')) {
     throw new Error('packaged desktop smoke test did not reach Host readiness')
+  }
+  const settingsFiles = await readdir(dshHome)
+  if (!settingsFiles.some(name => name.startsWith('desktop-settings.corrupt-'))) {
+    throw new Error('packaged desktop smoke test did not preserve corrupt settings')
   }
 } finally {
   await rm(isolatedHome, { recursive: true, force: true })

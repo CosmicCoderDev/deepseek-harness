@@ -37,7 +37,7 @@ export interface FriendlyDesktopError {
 }
 
 /** Translate known provider failures into user-facing causes and actions. */
-export function explainDesktopError(product: 'Codex' | 'Claude Code' | 'Network', error: unknown): FriendlyDesktopError {
+export function explainDesktopError(product: 'Codex' | 'Claude Code' | 'Network' | 'Desktop Host', error: unknown): FriendlyDesktopError {
   const raw = redactDiagnosticText(renderDetail(error))
   const lower = raw.toLowerCase()
   if (lower.includes('electron_run_as_node') || lower.includes('node mode')) {

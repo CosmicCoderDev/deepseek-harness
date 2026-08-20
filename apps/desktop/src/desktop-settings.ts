@@ -13,6 +13,12 @@ export interface DesktopSettings {
   readonly subagentPermission: SubagentPermission
 }
 
+export interface DesktopSettingsReadResult {
+  readonly settings: DesktopSettings
+  readonly recoveryWarning?: string
+  readonly recoveredFile?: string
+}
+
 const SETTINGS_FILE = 'desktop-settings.json'
 
 export const DEFAULT_DESKTOP_SETTINGS: DesktopSettings = {
@@ -23,14 +29,31 @@ export const DEFAULT_DESKTOP_SETTINGS: DesktopSettings = {
 
 /** Read current settings and migrate the former proxy-only file when needed. */
 export async function readDesktopSettings(dshHome: string): Promise<DesktopSettings> {
+  return (await readDesktopSettingsWithRecovery(dshHome)).settings
+}
+
+/** Read settings, preserving an invalid file before installing safe defaults. */
+export async function readDesktopSettingsWithRecovery(dshHome: string): Promise<DesktopSettingsReadResult> {
+  const target = join(dshHome, SETTINGS_FILE)
   try {
-    const parsed: unknown = JSON.parse(await readFile(join(dshHome, SETTINGS_FILE), 'utf8'))
-    return validateDesktopSettings(parsed)
-  } catch {
+    const parsed: unknown = JSON.parse(await readFile(target, 'utf8'))
+    return { settings: validateDesktopSettings(parsed) }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      await mkdir(dshHome, { recursive: true })
+      const recoveredFile = join(dshHome, `desktop-settings.corrupt-${Date.now()}.json`)
+      await rename(target, recoveredFile)
+      await writeDesktopSettings(dshHome, DEFAULT_DESKTOP_SETTINGS)
+      return {
+        settings: DEFAULT_DESKTOP_SETTINGS,
+        recoveryWarning: '桌面设置文件损坏或版本不受支持，已保留原文件并恢复为安全默认值。',
+        recoveredFile,
+      }
+    }
     const proxy = await readProxySettings(dshHome)
     const migrated = { ...DEFAULT_DESKTOP_SETTINGS, proxy }
     await writeDesktopSettings(dshHome, migrated)
-    return migrated
+    return { settings: migrated }
   }
 }
 

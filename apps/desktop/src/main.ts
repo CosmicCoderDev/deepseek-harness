@@ -20,7 +20,8 @@ import { startDesktopHost, type DesktopHost } from './host.ts'
 import {
   IPC_ABORT, IPC_BOOT, IPC_FETCH, IPC_STREAM,
   IPC_SETTINGS_COPY_DIAGNOSTICS, IPC_SETTINGS_GET, IPC_SETTINGS_LOGIN, IPC_SETTINGS_OPEN_LOGS,
-  IPC_SETTINGS_SAVE, IPC_SETTINGS_TEST,
+  IPC_SETTINGS_REFRESH_STATUS, IPC_SETTINGS_RESTART_HOST, IPC_SETTINGS_SAVE,
+  IPC_SETTINGS_STATUS_CHANGED, IPC_SETTINGS_TEST,
   type DesktopFetchResponse, type DesktopStreamEvent,
   type DesktopSettingsView,
 } from './ipc-contract.ts'
@@ -35,6 +36,7 @@ import {
   RECOMMENDED_OLLAMA_MODEL,
 } from './onboarding.ts'
 import { formatSubagentStatus, inspectSubagents } from './subagent-status.ts'
+import { SubagentStatusService } from './subagent-status-service.ts'
 import { openSubagentLogin } from './subagent-login.ts'
 import { ensureDesktopPreset } from './desktop-preset.ts'
 import {
@@ -45,7 +47,7 @@ import {
 import { formatConnectivityResults, testProviderConnectivity } from './connectivity.ts'
 import {
   applySubagentPermission,
-  readDesktopSettings,
+  readDesktopSettingsWithRecovery,
   validateDesktopSettings,
   writeDesktopSettings,
   type DesktopSettings,
@@ -76,7 +78,12 @@ let desktopSettings: DesktopSettings = {
   subagentPermission: 'read-only',
 }
 let proxyRefresh: NodeJS.Timeout | undefined
-const activeRequests = new Map<string, AbortController>()
+let statusRefresh: NodeJS.Timeout | undefined
+let statusService: SubagentStatusService | undefined
+let settingsRecoveryWarning: string | undefined
+let restartRequired = false
+let hostRestarting = false
+const activeRequests = new Map<string, { controller: AbortController; url: string }>()
 
 function installApplicationMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate([
@@ -112,7 +119,7 @@ function installApplicationMenu(): void {
 }
 
 async function showSubagentStatus(): Promise<void> {
-  const status = await inspectSubagents(app.getAppPath())
+  const status = (await requiredStatusService().refresh()).status
   const options: MessageBoxOptions = {
     type: status.codex.authenticated && status.claude.authenticated ? 'info' : 'warning',
     title: 'Codex & Claude Code',
@@ -230,7 +237,7 @@ async function handleFetch(event: IpcMainInvokeEvent, rawRequest: unknown): Prom
   const request = parseDesktopFetchRequest(rawRequest)
   if (activeRequests.has(request.id)) throw new Error('desktop: duplicate IPC request id')
   const controller = new AbortController()
-  activeRequests.set(request.id, controller)
+  activeRequests.set(request.id, { controller, url: request.url })
   try {
     if (host === undefined) throw new Error('desktop: Host is not ready')
     const response = await host.fetch(new Request(request.url, {
@@ -286,7 +293,7 @@ function installIpc(): void {
   ipcMain.handle(IPC_FETCH, handleFetch)
   ipcMain.on(IPC_ABORT, (event, id: unknown) => {
     assertMainSender(event.sender.id)
-    if (typeof id === 'string') activeRequests.get(id)?.abort()
+    if (typeof id === 'string') activeRequests.get(id)?.controller.abort()
   })
   ipcMain.on(IPC_BOOT, (event) => {
     if (settingsWindow?.webContents.id === event.sender.id) {
@@ -306,10 +313,13 @@ function installIpc(): void {
     if (next.subagentPermission === 'full-access' && confirmFullAccess !== true) {
       throw new Error('完全访问需要用户二次确认')
     }
+    const permissionChanged = next.subagentPermission !== desktopSettings.subagentPermission
     await writeDesktopSettings(proxyHome, next)
     desktopSettings = next
+    settingsRecoveryWarning = undefined
     proxySnapshot = applyProxySettings(next.proxy)
     applySubagentPermission(next.subagentPermission)
+    restartRequired ||= permissionChanged
     recordDesktopDiagnostic('info', `desktop settings updated\n${formatProxySnapshot(proxySnapshot)}\npermission: ${next.subagentPermission}`)
     return await desktopSettingsView()
   })
@@ -334,16 +344,34 @@ function installIpc(): void {
     recordDesktopDiagnostic('info', `opening ${product} login in Terminal`)
     await openSubagentLogin(product, app.getAppPath(), process.execPath)
   })
+  ipcMain.handle(IPC_SETTINGS_REFRESH_STATUS, async (event) => {
+    assertSettingsSender(event.sender.id)
+    await requiredStatusService().refresh()
+    return await desktopSettingsView()
+  })
+  ipcMain.handle(IPC_SETTINGS_RESTART_HOST, async (event) => {
+    assertSettingsSender(event.sender.id)
+    await restartDesktopHost()
+    return await desktopSettingsView()
+  })
 }
 
 async function desktopSettingsView(): Promise<DesktopSettingsView> {
-  const status = await inspectSubagents(app.getAppPath())
+  const snapshot = await requiredStatusService().get()
   return {
     settings: desktopSettings,
     proxySummary: formatProxySnapshot(proxySnapshot),
-    codex: status.codex,
-    claude: status.claude,
+    codex: snapshot.status.codex,
+    claude: snapshot.status.claude,
+    statusCheckedAt: snapshot.checkedAt,
+    restartRequired,
+    ...(settingsRecoveryWarning === undefined ? {} : { recoveryWarning: settingsRecoveryWarning }),
   }
+}
+
+function requiredStatusService(): SubagentStatusService {
+  if (statusService === undefined) throw new Error('子代理状态服务尚未启动')
+  return statusService
 }
 
 function installPluginProtocol(): void {
@@ -443,6 +471,8 @@ async function verifyPackagedSettingsSurface(): Promise<void> {
   const result = await window.webContents.executeJavaScript(`(async () => {
     if (document.querySelector('#save') === null || document.querySelector('#loginCodex') === null || document.querySelector('#loginClaude') === null) throw new Error('settings controls missing')
     if (typeof window.__DSH_SETTINGS__.login !== 'function') throw new Error('settings login bridge missing')
+    const initial = await window.__DSH_SETTINGS__.get()
+    if (!initial.recoveryWarning) throw new Error('corrupt settings recovery warning missing')
     let unsafeSaveRejected = false
     try {
       await window.__DSH_SETTINGS__.save({
@@ -457,21 +487,57 @@ async function verifyPackagedSettingsSurface(): Promise<void> {
     const saved = await window.__DSH_SETTINGS__.save({
       version: 1,
       proxy: { mode: 'direct' },
-      subagentPermission: 'read-only'
+      subagentPermission: 'project-development'
     }, false)
-    return { mode: saved.settings.proxy.mode, permission: saved.settings.subagentPermission }
-  })()`, true) as { mode: string; permission: string }
-  if (result.mode !== 'direct' || result.permission !== 'read-only') {
+    if (!saved.restartRequired) throw new Error('permission change did not require Host restart')
+    const restarted = await window.__DSH_SETTINGS__.restartHost()
+    return { mode: restarted.settings.proxy.mode, permission: restarted.settings.subagentPermission, restartRequired: restarted.restartRequired }
+  })()`, true) as { mode: string; permission: string; restartRequired: boolean }
+  if (result.mode !== 'direct' || result.permission !== 'project-development' || result.restartRequired) {
     throw new Error('desktop: packaged settings did not persist through IPC')
   }
   window.destroy()
 }
 
 async function stopHost(): Promise<void> {
-  for (const controller of activeRequests.values()) controller.abort()
+  for (const request of activeRequests.values()) request.controller.abort()
   activeRequests.clear()
   await host?.stop()
   host = undefined
+}
+
+async function restartDesktopHost(): Promise<void> {
+  if (hostRestarting) throw new Error('桌面 Host 正在重启，请稍候')
+  const hasRunningTask = [...activeRequests.values()].some(({ url }) => {
+    const pathname = new URL(url, 'http://desktop.invalid').pathname
+    return pathname === '/api/session.prompt' || pathname === '/api/subagent.prompt'
+  })
+  if (hasRunningTask) throw new Error('当前仍有运行中的任务，请等待任务完成后再重启 Host')
+  hostRestarting = true
+  try {
+    recordDesktopDiagnostic('info', 'desktop Host restart requested')
+    await stopHost()
+    applySubagentPermission(desktopSettings.subagentPermission)
+    host = await startDesktopHost()
+    restartRequired = false
+    await openDesktop(false)
+    recordDesktopDiagnostic('info', 'desktop Host restarted')
+  } catch (error) {
+    recordDesktopDiagnostic('error', 'desktop Host restart failed', error)
+    const safe = { ...desktopSettings, subagentPermission: 'read-only' as const }
+    desktopSettings = safe
+    await writeDesktopSettings(proxyHome, safe)
+    applySubagentPermission('read-only')
+    host = await startDesktopHost().catch((recoveryError: unknown) => {
+      recordDesktopDiagnostic('error', 'desktop Host safe recovery failed', recoveryError)
+      return undefined
+    })
+    restartRequired = host === undefined
+    if (host !== undefined) await openDesktop(false)
+    throw new Error(`桌面 Host 重启失败：${explainDesktopError('Desktop Host', error).detail}`)
+  } finally {
+    hostRestarting = false
+  }
 }
 
 async function onboardingWasShown(): Promise<boolean> {
@@ -570,6 +636,7 @@ if (!ownsInstance) {
     if (stopping) return
     stopping = true
     if (proxyRefresh !== undefined) clearInterval(proxyRefresh)
+    if (statusRefresh !== undefined) clearInterval(statusRefresh)
     void stopHost().finally(() => {
       stopped = true
       app.quit()
@@ -596,9 +663,31 @@ if (!ownsInstance) {
     })
     const dshHome = process.env.DSH_HOME ?? join(app.getPath('home'), '.dsh')
     proxyHome = dshHome
-    desktopSettings = await readDesktopSettings(dshHome)
+    const settingsResult = await readDesktopSettingsWithRecovery(dshHome)
+    desktopSettings = settingsResult.settings
+    settingsRecoveryWarning = settingsResult.recoveryWarning
+    if (settingsRecoveryWarning !== undefined) {
+      recordDesktopDiagnostic('warn', settingsRecoveryWarning)
+    }
     applySubagentPermission(desktopSettings.subagentPermission)
     proxySnapshot = applyProxySettings(desktopSettings.proxy)
+    statusService = new SubagentStatusService(
+      async () => await inspectSubagents(app.getAppPath()),
+      () => {
+        if (settingsWindow !== undefined && !settingsWindow.isDestroyed()) {
+          settingsWindow.webContents.send(IPC_SETTINGS_STATUS_CHANGED)
+        }
+      },
+    )
+    void statusService.refresh().catch((error: unknown) => {
+      recordDesktopDiagnostic('warn', 'initial subagent status refresh failed', error)
+    })
+    statusRefresh = setInterval(() => {
+      void statusService?.refresh().catch((error: unknown) => {
+        recordDesktopDiagnostic('warn', 'background subagent status refresh failed', error)
+      })
+    }, 30_000)
+    statusRefresh.unref()
     recordDesktopDiagnostic('info', `desktop proxy initialized\n${formatProxySnapshot(proxySnapshot)}`)
     proxyRefresh = setInterval(() => {
       if (desktopSettings.proxy.mode !== 'system') return

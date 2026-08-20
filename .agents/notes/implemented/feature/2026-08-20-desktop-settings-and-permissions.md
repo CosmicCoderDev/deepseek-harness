@@ -18,6 +18,8 @@ The packaged smoke test opens the real settings asset, verifies its controls, pr
 
 Provider login actions are a closed IPC enum. The main process derives the packaged executable paths and opens Terminal with the corresponding official login command; renderer input can select Codex or Claude Code but cannot supply shell text or a path. A separate opt-in live smoke script uses read-only/no-tool invocations, reports unauthenticated products as `SKIP`, and requires a fixed sentinel from each authenticated product.
 
+Product status inspection is owned by a cached, non-reentrant main-process service: explicit concurrent refreshes coalesce, the last good snapshot remains readable, and completed changes notify the settings renderer. Existing but invalid settings are preserved under a timestamped corrupt filename before safe defaults replace them. A permission change marks the Host for restart; the main process rejects restart while tracked requests are active, otherwise rebuilds the Host in place, and attempts a persisted Read-only Analysis recovery if startup fails.
+
 ## Alternatives considered
 
 **Continue adding native message boxes.** This would minimize new UI code, but Electron message boxes cannot provide a coherent editable form and had already forced manual proxy input through the clipboard.

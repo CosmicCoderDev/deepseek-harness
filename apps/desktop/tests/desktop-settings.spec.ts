@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import {
   applySubagentPermission,
   readDesktopSettings,
+  readDesktopSettingsWithRecovery,
   validateDesktopSettings,
   writeDesktopSettings,
 } from '../src/desktop-settings.ts'
@@ -52,6 +53,20 @@ describe('desktop settings', () => {
       }
       await writeDesktopSettings(home, settings)
       await expect(readDesktopSettings(home)).resolves.toEqual(settings)
+    } finally {
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('preserves a corrupt settings file and restores safe defaults', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'dsh-settings-corrupt-'))
+    try {
+      await writeFile(join(home, 'desktop-settings.json'), '{not-json}\n')
+      const result = await readDesktopSettingsWithRecovery(home)
+      expect(result.settings).toEqual({ version: 1, proxy: { mode: 'system' }, subagentPermission: 'read-only' })
+      expect(result.recoveryWarning).toContain('已保留原文件')
+      expect(await readFile(result.recoveredFile!, 'utf8')).toBe('{not-json}\n')
+      expect(JSON.parse(await readFile(join(home, 'desktop-settings.json'), 'utf8'))).toEqual(result.settings)
     } finally {
       await rm(home, { recursive: true, force: true })
     }

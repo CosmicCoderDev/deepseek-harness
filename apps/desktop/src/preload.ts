@@ -10,6 +10,9 @@ import {
   IPC_SETTINGS_GET,
   IPC_SETTINGS_OPEN_LOGS,
   IPC_SETTINGS_LOGIN,
+  IPC_SETTINGS_REFRESH_STATUS,
+  IPC_SETTINGS_RESTART_HOST,
+  IPC_SETTINGS_STATUS_CHANGED,
   IPC_SETTINGS_SAVE,
   IPC_SETTINGS_TEST,
   type DesktopSettingsView,
@@ -61,6 +64,13 @@ contextBridge.exposeInMainWorld('__DSH_SETTINGS__', {
   copyDiagnostics: (): Promise<void> => ipcRenderer.invoke(IPC_SETTINGS_COPY_DIAGNOSTICS) as Promise<void>,
   openLogs: (): Promise<void> => ipcRenderer.invoke(IPC_SETTINGS_OPEN_LOGS) as Promise<void>,
   login: (product: DesktopSubagentProduct): Promise<void> => ipcRenderer.invoke(IPC_SETTINGS_LOGIN, product) as Promise<void>,
+  refreshStatus: (): Promise<DesktopSettingsView> => ipcRenderer.invoke(IPC_SETTINGS_REFRESH_STATUS) as Promise<DesktopSettingsView>,
+  restartHost: (): Promise<DesktopSettingsView> => ipcRenderer.invoke(IPC_SETTINGS_RESTART_HOST) as Promise<DesktopSettingsView>,
+  onStatusChanged(listener: () => void): () => void {
+    const wrapped = (): void => { listener() }
+    ipcRenderer.on(IPC_SETTINGS_STATUS_CHANGED, wrapped)
+    return () => { ipcRenderer.removeListener(IPC_SETTINGS_STATUS_CHANGED, wrapped) }
+  },
 })
 
 function isStreamEvent(value: unknown): value is DesktopStreamEvent {
