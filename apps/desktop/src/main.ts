@@ -5,7 +5,7 @@ import { dirname, extname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   app, BrowserWindow, clipboard, dialog, ipcMain, Menu, protocol, shell,
-  type IpcMainInvokeEvent, type WebContents,
+  type IpcMainInvokeEvent, type MessageBoxOptions, type WebContents,
 } from 'electron'
 import { injectBootManifest } from '@deepseek-ai/dsh-client-modules'
 import {
@@ -30,6 +30,7 @@ import {
   RECOMMENDED_OLLAMA_MODEL,
 } from './onboarding.ts'
 import { applySystemProxy } from './system-proxy.ts'
+import { formatSubagentStatus, inspectSubagents } from './subagent-status.ts'
 
 const APP_NAME = 'DeepSeek Harness'
 const SMOKE_TEST = process.argv.includes('--smoke-test')
@@ -60,6 +61,10 @@ function installApplicationMenu(): void {
           label: 'Local Model Setup / 本地模型设置',
           click: () => { void showLocalModelSetup(false) },
         },
+        {
+          label: 'Codex & Claude Status / 子代理状态',
+          click: () => { void showSubagentStatus() },
+        },
         { type: 'separator' },
         {
           label: 'Open Logs Folder / 打开日志目录',
@@ -72,6 +77,20 @@ function installApplicationMenu(): void {
       ],
     },
   ]))
+}
+
+async function showSubagentStatus(): Promise<void> {
+  const status = await inspectSubagents(app.getAppPath())
+  const options: MessageBoxOptions = {
+    type: status.codex.authenticated && status.claude.authenticated ? 'info' : 'warning',
+    title: 'Codex & Claude Code',
+    message: 'AI 子代理状态',
+    detail: formatSubagentStatus(status),
+    buttons: ['好'],
+  }
+  await (mainWindow === undefined
+    ? dialog.showMessageBox(options)
+    : dialog.showMessageBox(mainWindow, options))
 }
 
 function createWindow(reveal = true): BrowserWindow {
