@@ -2,13 +2,13 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { ensureDesktopPreset } from '../src/desktop-preset.ts'
+import { DESKTOP_PRESETS, ensureDesktopPreset } from '../src/desktop-preset.ts'
 
 describe('desktop preset installer', () => {
   it('installs once and never overwrites a user-edited preset', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-preset-'))
     const home = join(root, 'home')
-    for (const preset of ['codex-claude', 'codex-direct', 'claude-direct']) {
+    for (const preset of DESKTOP_PRESETS) {
       const source = join(root, 'config', 'agent-presets', preset)
       await mkdir(source, { recursive: true })
       await writeFile(join(source, 'agent.cordis.yml'), 'template')
@@ -19,5 +19,9 @@ describe('desktop preset installer', () => {
     await writeFile(target, 'user edit')
     await expect(ensureDesktopPreset(join(root, 'config'), home)).resolves.toBe(false)
     await expect(readFile(target, 'utf8')).resolves.toBe('user edit')
+    await expect(readFile(join(home, '.agent-presets', 'auto-select', 'agent.cordis.yml'), 'utf8'))
+      .resolves.toBe('template')
+    await expect(readFile(join(home, '.agent-presets', 'local-only', 'agent.cordis.yml'), 'utf8'))
+      .resolves.toBe('template')
   })
 })

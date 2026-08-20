@@ -1,6 +1,6 @@
 /** Launch the packaged app with an empty Harness home so workspace links cannot mask missing files. */
 
-import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -26,6 +26,11 @@ try {
   const settingsFiles = await readdir(dshHome)
   if (!settingsFiles.some(name => name.startsWith('desktop-settings.corrupt-'))) {
     throw new Error('packaged desktop smoke test did not preserve corrupt settings')
+  }
+  const localMode = await readFile(join(dshHome, '.agent-presets', 'local-only', 'agent.cordis.yml'), 'utf8')
+  const autoMode = await readFile(join(dshHome, '.agent-presets', 'auto-select', 'agent.cordis.yml'), 'utf8')
+  if (!localMode.includes('disabled: true') || !autoMode.includes('Do not silently switch provider')) {
+    throw new Error('packaged desktop smoke test did not install execution-mode presets')
   }
 } finally {
   await rm(isolatedHome, { recursive: true, force: true })

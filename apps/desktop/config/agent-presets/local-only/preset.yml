@@ -1,0 +1,3 @@
+name: 本地模型
+description: 只使用当前本地模型和本机工具，不调用 Codex 或 Claude Code。
+order: 3
