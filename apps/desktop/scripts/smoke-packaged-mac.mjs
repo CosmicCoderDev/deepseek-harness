@@ -29,8 +29,16 @@ try {
   }
   const localMode = await readFile(join(dshHome, '.agent-presets', 'local-only', 'agent.cordis.yml'), 'utf8')
   const autoMode = await readFile(join(dshHome, '.agent-presets', 'auto-select', 'agent.cordis.yml'), 'utf8')
+  const reviewMode = await readFile(
+    join(dshHome, '.agent-presets', 'codex-claude-review', 'agent.cordis.yml'),
+    'utf8',
+  )
   if (!localMode.includes('disabled: true') || !autoMode.includes('Do not silently switch provider')) {
     throw new Error('packaged desktop smoke test did not install execution-mode presets')
+  }
+  if (!reviewMode.includes('reviewToolName: codex_claude_review')
+    || (reviewMode.match(/disabled: true/g)?.length ?? 0) < 2) {
+    throw new Error('packaged desktop smoke test did not install the fixed review workflow')
   }
 } finally {
   await rm(isolatedHome, { recursive: true, force: true })

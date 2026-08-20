@@ -296,4 +296,13 @@ interface DesktopSubagentProvider {
 - 注册表拒绝重复 ID 和未声明能力，渲染器只能提交封闭 Provider ID，不能传入模块路径、可执行文件或命令参数。
 - 单元测试覆盖注册顺序、重复 ID、未知能力和原生权限映射；安装包冒烟测试验证注册表投影进入设置 IPC。
 
-下一批次为阶段 H 的首个组合工作流：Codex 开发 → Claude Code 审核。
+批次 4 已于 2026-08-21 完成实现：
+
+- 新增正式的“Codex 开发 → Claude 审核”桌面预设，以单一 `codex_claude_review` 工具承载完整任务，不要求本地模型记忆 provider 工具名。
+- provider 顺序由工具代码固定为 Codex 后 Claude Code，而非依赖提示词；该预设从模型工具目录中移除两个独立 provider 工具，防止绕过固定流程。
+- Codex 完成实现或分析并返回验证证据后，Claude Code 获得原始需求、Codex 输出和共享工作区，只执行独立审核，不修改文件。
+- Codex 启动／执行失败与 Claude Code 审核失败分别报告；Codex 失败时不会启动 Claude Code。
+- Claude 审核必须返回 `PASS`、`NEEDS_CHANGES` 或 `BLOCKED`。后两者以及无有效结论均停止等待用户决定，不自动发起修复循环。
+- 单元测试覆盖 provider 固定顺序、结果传递、结论映射、资源释放及 Codex 失败短路；桌面预设测试验证两个独立 provider 工具被结构性禁用。
+
+下一批次为阶段 I、J：项目级策略与可观测性。Apple 签名、公证和自动更新仍按已确认范围暂缓。

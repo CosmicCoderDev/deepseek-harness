@@ -25,9 +25,12 @@ import type {
 } from './types.ts'
 // Declaration merge only: makes ctx.systemPrompt visible for the section registration.
 import type {} from '@deepseek-ai/dsh-system-prompt'
+import type {} from '@deepseek-ai/dsh-subagent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { SubagentResult, SubagentRun } from '@deepseek-ai/dsh-subagent'
 
 export const name = 'tool-workflow'
-export const inject = ['tools', 'workflowEngine', 'systemPrompt']
+export const inject = ['tools', 'workflowEngine', 'systemPrompt', 'subagents']
 
 /** Config: the model-facing tool name plus result rendering caps. */
 export interface Config {
@@ -35,14 +38,17 @@ export interface Config {
   toolName?: string
   /** Rendered-result ceiling, in characters: a longer JSON value is truncated with a notice (default 50000). */
   maxResultChars?: number
+  /** Optional fixed Codex implementation → Claude Code review tool. */
+  reviewToolName?: string
 }
 
 export const Config: z<Config> = z.object({
   toolName: z.string().default('workflow'),
   maxResultChars: z.natural().min(1).default(50_000),
+  reviewToolName: z.string(),
 })
 
-type ResolvedConfig = Required<Config>
+type ResolvedConfig = Required<Omit<Config, 'reviewToolName'>> & Pick<Config, 'reviewToolName'>
 
 interface WorkflowRecorder {
   start(session: Session, run: WorkflowRun): void
@@ -202,10 +208,114 @@ function renderResult(name: string, agentsStarted: number, value: JsonValue, max
   return `workflow "${name}" completed (${agentsStarted} agent${agentsStarted === 1 ? '' : 's'}).\nReturn value:\n${clipped}`
 }
 
+type FixedReviewStage = {
+  provider: 'codex' | 'claude-code'
+  status: 'completed'
+  output: JsonValue[]
+}
+
+type FixedReviewResult = {
+  workflow: 'codex-develop-claude-review'
+  status: 'approved' | 'needs-changes' | 'blocked'
+  implementation: FixedReviewStage
+  review: FixedReviewStage
+}
+
+async function runFixedStage(
+  ctx: Context,
+  provider: 'codex' | 'claude-code',
+  label: string,
+  prompt: string,
+  parent: Agent,
+  signal: AbortSignal,
+): Promise<FixedReviewStage> {
+  let run: SubagentRun | undefined
+  try {
+    run = await ctx.subagents.start(provider, {
+      label,
+      prompt: [{ type: 'text', text: prompt }],
+      parent,
+      signal,
+    })
+    const result: SubagentResult = await run.result
+    if (result.stopReason !== 'completed') {
+      throw new Error(`${provider} stage failed (${result.stopReason}): ${result.diagnostic ?? 'no diagnostic'}`)
+    }
+    return { provider, status: 'completed', output: result.output as unknown as JsonValue[] }
+  } finally {
+    await run?.dispose()
+  }
+}
+
+function reviewStatus(output: readonly ContentBlock[]): FixedReviewResult['status'] {
+  const text = output.flatMap(block => block.type === 'text' ? [block.text] : []).join('\n')
+  const verdict = /VERDICT:\s*(PASS|NEEDS_CHANGES|BLOCKED)/iu.exec(text)?.[1]
+  if (verdict === 'PASS') return 'approved'
+  if (verdict === 'NEEDS_CHANGES') return 'needs-changes'
+  return 'blocked'
+}
+
+function registerFixedReviewTool(ctx: Context, toolName: string): void {
+  ctx.systemPrompt.section({
+    name: `tool:${toolName}`,
+    order: 116,
+    text: `Use ${toolName} when the user selects or explicitly requests the Codex development → Claude Code review workflow. The tool owns both provider calls and their order. Never replace either stage with local work. A needs-changes or blocked review is a stopping point that requires user direction.`,
+  })
+  ctx.tools.register(defineTool({
+    name: toolName,
+    description: 'Run the fixed two-stage desktop workflow: Codex implements or analyzes the request, then Claude Code independently reviews the original request, Codex output, and shared workspace. Provider order cannot be changed. A failed stage fails the whole tool; a review requesting changes stops for user confirmation.',
+    parameters: {
+      objective: {
+        type: 'string',
+        required: true,
+        description: 'The complete original user objective, including constraints and expected verification.',
+      },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          workflow: { type: 'string', required: true },
+          status: { type: 'string', required: true },
+          implementation: { type: 'json', required: true },
+          review: { type: 'json', required: true },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    },
+    async execute(args, exec): Promise<FixedReviewResult> {
+      const parent = exec.agent
+      if (parent === undefined) throw new Error(`${toolName} requires a calling agent`)
+      const implementation = await runFixedStage(
+        ctx, 'codex', 'Codex implementation',
+        `Implement or analyze the following request in the shared workspace. Run appropriate verification and report changed files, evidence, and remaining risks.\n\nREQUEST:\n${args.objective}`,
+        parent, exec.signal,
+      ).catch((error: unknown) => {
+        throw new Error(`Codex implementation stage failed: ${error instanceof Error ? error.message : String(error)}`)
+      })
+      const review = await runFixedStage(
+        ctx, 'claude-code', 'Claude Code review',
+        `Independently review the completed Codex stage against the original request. Inspect the shared workspace and verification evidence. Do not modify files. Start the final answer with exactly one of VERDICT: PASS, VERDICT: NEEDS_CHANGES, or VERDICT: BLOCKED, then list concrete evidence and issues.\n\nORIGINAL REQUEST:\n${args.objective}\n\nCODEX OUTPUT:\n${JSON.stringify(implementation.output)}`,
+        parent, exec.signal,
+      ).catch((error: unknown) => {
+        throw new Error(`Claude Code review stage failed: ${error instanceof Error ? error.message : String(error)}`)
+      })
+      return {
+        workflow: 'codex-develop-claude-review',
+        status: reviewStatus(review.output as unknown as readonly ContentBlock[]),
+        implementation,
+        review,
+      }
+    },
+  }))
+}
+
 export function apply(ctx: Context, config: Config): void {
   // schemastery (the exported Config schema) has already filled the defaulted
   // fields; the assertion records that resolution, not a hidden fallback.
-  const { toolName, maxResultChars } = config as ResolvedConfig
+  const { toolName, maxResultChars, reviewToolName } = config as ResolvedConfig
+  if (reviewToolName !== undefined) registerFixedReviewTool(ctx, reviewToolName)
   const recorder = createWorkflowRecorder(ctx)
   // Usage policy ships with the tool (the master convention: tool guidance
   // lives in tool plugins as prompt sections, not in the deployment persona).

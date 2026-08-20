@@ -4,7 +4,9 @@ import { constants } from 'node:fs'
 import { copyFile, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 
-export const DESKTOP_PRESETS = ['local-only', 'auto-select', 'codex-claude', 'codex-direct', 'claude-direct'] as const
+export const DESKTOP_PRESETS = [
+  'local-only', 'auto-select', 'codex-claude', 'codex-direct', 'claude-direct', 'codex-claude-review',
+] as const
 
 export async function ensureDesktopPreset(configRoot: string, dshHome: string): Promise<boolean> {
   let created = false

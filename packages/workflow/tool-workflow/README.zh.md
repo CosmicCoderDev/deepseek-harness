@@ -26,6 +26,9 @@
 |---|---|---|
 | `toolName` | `workflow` | 要注册的面向模型工具名称。 |
 | `maxResultChars` | `50000` | 渲染结果上限；更长的 JSON 会被截断并附上提示。 |
+| `reviewToolName` | 未设置 | 以该名称选择性注册固定的 Codex 实现 → Claude Code 审核工具。工具按固定顺序启动准确的 provider，区分各阶段失败，把审核结论映射为 `approved`、`needs-changes` 或 `blocked`，并且不会自动进入修复循环。 |
+
+固定审核工具要求存在 `subagents` 服务以及准确的 `codex`、`claude-code` provider。部署可以保留 provider 注册，但向模型隐藏两个独立 provider 工具，使固定工具成为唯一面向模型的调用路径，而不是依赖提示词服从。Claude Code 会收到只审核、不修改文件的明确要求；缺失或格式不正确的 `VERDICT` 一律按 `blocked` 处理。
 
 ## 模型体验
 

@@ -26,6 +26,9 @@ Decided up front (per the [render-intent Agent Note](../../../.agents/notes/impl
 |---|---|---|
 | `toolName` | `workflow` | The model-facing tool name to register. |
 | `maxResultChars` | `50000` | Rendered-result ceiling; longer JSON is truncated with a notice. |
+| `reviewToolName` | unset | Opt in to a fixed Codex implementation → Claude Code review tool under this name. The tool starts the exact providers in order, reports stage-specific failures, maps the review verdict to `approved`, `needs-changes`, or `blocked`, and never starts an automatic repair loop. |
+
+The fixed review tool requires the `subagents` service and exact `codex` and `claude-code` providers. A deployment may hide the separate provider tools from the model while keeping those providers registered; this makes the fixed tool, rather than prompt compliance, the only model-facing path. Claude Code is instructed to review without modifying files. A missing or malformed `VERDICT` is treated as `blocked`.
 
 ## Model Experience
 

@@ -74,10 +74,11 @@ class StubEngine extends WorkflowEngine {
   }
 }
 
-async function setup(config?: { toolName?: string; maxResultChars?: number }) {
+async function setup(config?: { toolName?: string; maxResultChars?: number; reviewToolName?: string }) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
+  await ctx.plugin(SubagentRuntime)
   await ctx.plugin(StubEngine)
   await ctx.plugin(toolWorkflow, config ?? {})
   const engine = ctx.workflowEngine as StubEngine
@@ -369,6 +370,7 @@ describe('dsh-tool-workflow', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
+    await ctx.plugin(SubagentRuntime)
     await ctx.plugin(StubEngine)
     const fiber = await ctx.plugin(toolWorkflow, { toolName: 'orchestrate' })
     expect(ctx.tools.get('orchestrate')).toBeDefined()
@@ -403,10 +405,81 @@ describe('dsh-tool-workflow', () => {
     expect(tool.presentCall!({ script: SCRIPT })).toBeUndefined()
   })
 
+  it('runs the fixed Codex then Claude review in order and stops on a review verdict', async () => {
+    const { ctx, parent } = await setup({ reviewToolName: 'codex_claude_review' })
+    const starts: { provider: string; prompt: string }[] = []
+    let disposed = 0
+    const register = (provider: 'codex' | 'claude-code', answer: string) => {
+      ctx.subagents.registerProvider({
+        name: provider,
+        capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+        inheritsParentContext: false,
+        start: async (request) => {
+          starts.push({ provider, prompt: request.prompt.map(block => block.type === 'text' ? block.text : '').join('') })
+          return {
+            id: SessionId(`${provider}-run`),
+            localAgent: undefined,
+            result: Promise.resolve({ output: [{ type: 'text', text: answer }], stopReason: 'completed' }),
+            dispose: async () => { disposed += 1 },
+          }
+        },
+      })
+    }
+    register('codex', 'implemented and tested')
+    register('claude-code', 'VERDICT: NEEDS_CHANGES\nMissing edge-case test.')
+    const result = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('review-call'),
+      name: 'codex_claude_review',
+      arguments: { objective: 'Implement feature X' },
+      agent: parent,
+    })
+    if (result.isError) throw new Error(`expected fixed workflow success: ${JSON.stringify(result.content)}`)
+    expect(starts.map(start => start.provider)).toEqual(['codex', 'claude-code'])
+    expect(starts[1]!.prompt).toContain('implemented and tested')
+    expect(result.value).toMatchObject({
+      workflow: 'codex-develop-claude-review',
+      status: 'needs-changes',
+    })
+    expect(disposed).toBe(2)
+  })
+
+  it('reports which fixed stage failed and never starts the reviewer after Codex failure', async () => {
+    const { ctx, parent } = await setup({ reviewToolName: 'codex_claude_review' })
+    let claudeStarted = false
+    ctx.subagents.registerProvider({
+      name: 'codex',
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+      inheritsParentContext: false,
+      start: async () => ({
+        id: SessionId('codex-failed'),
+        localAgent: undefined,
+        result: Promise.resolve({ output: [], stopReason: 'error', diagnostic: 'authentication required' }),
+        dispose: async () => undefined,
+      }),
+    })
+    ctx.subagents.registerProvider({
+      name: 'claude-code',
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+      inheritsParentContext: false,
+      start: async () => { claudeStarted = true; throw new Error('must not start') },
+    })
+    const result = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('review-failure'),
+      name: 'codex_claude_review',
+      arguments: { objective: 'Implement feature X' },
+      agent: parent,
+    })
+    expect(result.isError).toBe(true)
+    expect((result.content[0] as { text: string }).text).toContain('Codex implementation stage failed')
+    expect(claudeStarted).toBe(false)
+  })
+
   it('has the namespace-plugin export shape (no stray default)', () => {
     expect('default' in toolWorkflow).toBe(false)
     expect(toolWorkflow.name).toBe('tool-workflow')
-    expect(toolWorkflow.inject).toEqual(['tools', 'workflowEngine', 'systemPrompt'])
+    expect(toolWorkflow.inject).toEqual(['tools', 'workflowEngine', 'systemPrompt', 'subagents'])
     const loader = Object.create(Loader.prototype) as Loader
     const unwrapped = loader.unwrapExports(toolWorkflow) as Record<string, unknown>
     expect(unwrapped).toBe(toolWorkflow)

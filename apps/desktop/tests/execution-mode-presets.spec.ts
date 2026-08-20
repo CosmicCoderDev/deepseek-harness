@@ -1,9 +1,10 @@
 import { readFile } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { DESKTOP_PRESETS } from '../src/desktop-preset.ts'
 
-const root = join(process.cwd(), 'config', 'agent-presets')
+const root = fileURLToPath(new URL('../config/agent-presets', import.meta.url))
 
 async function composition(id: string): Promise<string> {
   return await readFile(join(root, id, 'agent.cordis.yml'), 'utf8')
@@ -12,7 +13,7 @@ async function composition(id: string): Promise<string> {
 describe('desktop execution-mode presets', () => {
   it('ships every structured execution choice', () => {
     expect(DESKTOP_PRESETS).toEqual([
-      'local-only', 'auto-select', 'codex-claude', 'codex-direct', 'claude-direct',
+      'local-only', 'auto-select', 'codex-claude', 'codex-direct', 'claude-direct', 'codex-claude-review',
     ])
   })
 
@@ -36,5 +37,13 @@ describe('desktop execution-mode presets', () => {
     expect(value).toContain('call subagent_codex for repository')
     expect(value).toContain('call subagent_claude_code for design')
     expect(value).toContain('Do not silently switch provider')
+  })
+
+  it('ships a fixed Codex development then Claude review workflow', async () => {
+    const value = await composition('codex-claude-review')
+    expect(value).toContain('reviewToolName: codex_claude_review')
+    expect(value).toMatch(/id: tool-subagent-codex[\s\S]*?disabled: true/)
+    expect(value).toMatch(/id: tool-subagent-claude-code[\s\S]*?disabled: true/)
+    expect(value).toContain('never start an automatic repair loop')
   })
 })
