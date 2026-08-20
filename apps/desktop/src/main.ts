@@ -29,6 +29,7 @@ import {
   probeOllama,
   RECOMMENDED_OLLAMA_MODEL,
 } from './onboarding.ts'
+import { applySystemProxy } from './system-proxy.ts'
 
 const APP_NAME = 'DeepSeek Harness'
 const SMOKE_TEST = process.argv.includes('--smoke-test')
@@ -406,6 +407,10 @@ if (!ownsInstance) {
     process.on('unhandledRejection', (error) => {
       recordDesktopDiagnostic('error', 'unhandled rejection', error)
     })
+    const proxy = applySystemProxy()
+    if (Object.keys(proxy).length > 0) {
+      recordDesktopDiagnostic('info', 'macOS system proxy imported for CLI subprocesses')
+    }
     host = await startDesktopHost()
     recordDesktopDiagnostic('info', 'in-process Host started')
     installIpc()

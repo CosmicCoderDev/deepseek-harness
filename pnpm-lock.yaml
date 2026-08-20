@@ -421,6 +421,12 @@ importers:
       '@deepseek-ai/dsh-spill':
         specifier: workspace:^
         version: link:../../packages/spill/spill
+      '@deepseek-ai/dsh-subagent-claude-code':
+        specifier: workspace:^
+        version: link:../../packages/subagent/subagent-claude-code
+      '@deepseek-ai/dsh-subagent-codex':
+        specifier: workspace:^
+        version: link:../../packages/subagent/subagent-codex
       '@deepseek-ai/dsh-subagent-in-process-driver':
         specifier: workspace:^
         version: link:../../packages/subagent/subagent-in-process-driver

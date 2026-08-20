@@ -21,6 +21,20 @@
     - id: directory-picker-surface
       name: '@deepseek-ai/dsh-client-ui-directory-picker-native'
 
+    # Desktop-only optional delegation providers. They remain invisible to the
+    # model unless the selected Agent Preset grants the matching tool rows.
+    - id: subagent-codex
+      name: '@deepseek-ai/dsh-subagent-codex'
+      config:
+        # The provider launches the package-local JavaScript wrapper with
+        # process.execPath. In Electron that path is the app executable, so
+        # opt the child into Electron's supported Node-compatible mode.
+        env:
+          ELECTRON_RUN_AS_NODE: '1'
+
+    - id: subagent-claude-code
+      name: '@deepseek-ai/dsh-subagent-claude-code'
+
 - id: connection
   inject: []
   config:
