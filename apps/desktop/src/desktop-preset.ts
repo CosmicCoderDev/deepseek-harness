@@ -8,6 +8,8 @@ export const DESKTOP_PRESETS = [
   'local-only', 'auto-select', 'codex-claude', 'codex-direct', 'claude-direct', 'codex-claude-review',
 ] as const
 
+export type DesktopPreset = typeof DESKTOP_PRESETS[number]
+
 export async function ensureDesktopPreset(configRoot: string, dshHome: string): Promise<boolean> {
   let created = false
   for (const preset of DESKTOP_PRESETS) {
