@@ -15,6 +15,12 @@ import {
   IPC_SETTINGS_STATUS_CHANGED,
   IPC_SETTINGS_SAVE,
   IPC_SETTINGS_TEST,
+  IPC_PROJECT_POLICY_DELETE,
+  IPC_PROJECT_POLICY_GET,
+  IPC_PROJECT_POLICY_SAVE,
+  IPC_PROJECT_POLICY_SELECT,
+  type DesktopProjectPolicyValue,
+  type DesktopProjectPolicyView,
   type DesktopSettingsView,
   type DesktopSubagentProduct,
   type DesktopFetchRequest,
@@ -66,6 +72,13 @@ contextBridge.exposeInMainWorld('__DSH_SETTINGS__', {
   login: (product: DesktopSubagentProduct): Promise<void> => ipcRenderer.invoke(IPC_SETTINGS_LOGIN, product) as Promise<void>,
   refreshStatus: (): Promise<DesktopSettingsView> => ipcRenderer.invoke(IPC_SETTINGS_REFRESH_STATUS) as Promise<DesktopSettingsView>,
   restartHost: (): Promise<DesktopSettingsView> => ipcRenderer.invoke(IPC_SETTINGS_RESTART_HOST) as Promise<DesktopSettingsView>,
+  selectProject: (): Promise<string | undefined> => ipcRenderer.invoke(IPC_PROJECT_POLICY_SELECT) as Promise<string | undefined>,
+  getProjectPolicy: (projectRoot: string): Promise<DesktopProjectPolicyView> =>
+    ipcRenderer.invoke(IPC_PROJECT_POLICY_GET, projectRoot) as Promise<DesktopProjectPolicyView>,
+  saveProjectPolicy: (policy: DesktopProjectPolicyValue, confirmExpansion: boolean): Promise<DesktopProjectPolicyView> =>
+    ipcRenderer.invoke(IPC_PROJECT_POLICY_SAVE, policy, confirmExpansion) as Promise<DesktopProjectPolicyView>,
+  deleteProjectPolicy: (projectRoot: string): Promise<DesktopProjectPolicyView> =>
+    ipcRenderer.invoke(IPC_PROJECT_POLICY_DELETE, projectRoot) as Promise<DesktopProjectPolicyView>,
   onStatusChanged(listener: () => void): () => void {
     const wrapped = (): void => { listener() }
     ipcRenderer.on(IPC_SETTINGS_STATUS_CHANGED, wrapped)

@@ -17,14 +17,15 @@
     .service strong { display: block; font-size: 15px; margin-bottom: 8px; }
     .ok { color: #16803b; } .bad { color: #c43b32; }
     label { display: block; margin: 9px 0; } input[type="radio"] { margin-right: 8px; }
-    input[type="url"] { box-sizing: border-box; width: 100%; border: 1px solid #c8cdd3; border-radius: 8px; padding: 10px 12px; font: inherit; }
+    input[type="url"], input[type="text"], select, textarea { box-sizing: border-box; width: 100%; border: 1px solid #c8cdd3; border-radius: 8px; padding: 10px 12px; font: inherit; }
+    textarea { min-height: 70px; resize: vertical; }
     .hint, pre { color: #69707a; font-size: 12px; line-height: 1.55; }
     pre { white-space: pre-wrap; background: #f6f7f8; border-radius: 8px; padding: 10px; }
     button { border: 1px solid #c8cdd3; background: white; color: #202124; border-radius: 8px; padding: 9px 14px; font: inherit; cursor: pointer; }
     button.primary { background: #2563eb; border-color: #2563eb; color: white; }
     button + button { margin-left: 8px; } .actions { margin-top: 16px; }
     #notice { min-height: 20px; margin-top: 12px; color: #2563eb; }
-    @media (prefers-color-scheme: dark) { body { background:#17181a;color:#eceff3 } section,.service,button { background:#232529;border-color:#3b3e44;color:#eceff3 } input[type=url],pre { background:#1c1e21;border-color:#454951;color:#eceff3 } .lead,.hint,pre {color:#a9b0ba} }
+    @media (prefers-color-scheme: dark) { body { background:#17181a;color:#eceff3 } section,.service,button { background:#232529;border-color:#3b3e44;color:#eceff3 } input,select,textarea,pre { background:#1c1e21;border-color:#454951;color:#eceff3 } .lead,.hint,pre {color:#a9b0ba} }
   </style>
 </head>
 <body>
@@ -45,6 +46,23 @@
     <label><input type="radio" name="permission" value="full-access">完全访问 — 绕过原生审批与沙箱，仅限受控环境</label>
     <p class="hint">权限在下次启动桌面 Host 时生效。完全访问保存时需要再次确认。</p>
   </section>
+  <section><h2>项目策略（策略草稿）</h2>
+    <div class="grid"><div><label>项目目录</label><input id="projectRoot" type="text" readonly placeholder="请选择项目目录"></div><div class="actions"><button id="chooseProject">选择目录…</button></div></div>
+    <div id="projectEditor" hidden>
+      <div class="grid">
+        <label>默认执行方式<select id="projectExecution"><option value="local-only">本地模型</option><option value="auto-select">自动选择</option><option value="codex-direct">Codex</option><option value="claude-direct">Claude Code</option><option value="codex-claude">Codex + Claude 预览</option><option value="codex-claude-review">Codex 开发 → Claude 审核</option></select></label>
+        <label>权限上限<select id="projectPermission"><option value="read-only">只读分析</option><option value="project-development">项目开发</option><option value="full-access">完全访问</option></select></label>
+        <label>联网<select id="projectNetwork"><option value="inherit">继承全局</option><option value="deny">禁止</option><option value="allow">允许</option></select></label>
+        <label>代理覆盖<select id="projectProxy"><option value="inherit">继承全局</option><option value="system">系统代理</option><option value="direct">直连</option><option value="manual">手动代理</option></select></label>
+      </div>
+      <input id="projectProxyUrl" type="url" placeholder="http://127.0.0.1:7897">
+      <div class="grid"><label>默认 Provider（可选）<input id="projectProvider" type="text"></label><label>默认模型（可选）<input id="projectModel" type="text"></label></div>
+      <label><input id="projectReview" type="checkbox">默认启用交叉审核</label>
+      <label>允许读取的目录（每行一个绝对路径）<textarea id="projectReadRoots"></textarea></label>
+      <label>允许写入的目录（每行一个绝对路径）<textarea id="projectWriteRoots"></textarea></label>
+      <p class="hint" id="projectState"></p><div class="actions"><button id="saveProject">保存项目策略</button><button id="disableProject">停用项目覆盖</button></div>
+    </div>
+  </section>
   <section><h2>连接与诊断</h2><div><button id="test">测试四项连接</button><button id="copy">复制脱敏诊断</button><button id="logs">打开日志目录</button></div><pre id="testResult" hidden></pre></section>
   <div class="actions"><button class="primary" id="save">保存设置</button><button id="restart" hidden>立即重启 Host</button><span id="notice"></span></div>
 </main>
@@ -52,6 +70,7 @@
   const api = window.__DSH_SETTINGS__
   const $ = id => document.getElementById(id)
   let view
+  let projectView
   function service(name, state) { return `<strong>${name}</strong><span class="${state.authenticated ? 'ok' : 'bad'}">${state.installed ? '已内置' : '未安装'} · ${state.authenticated ? '已登录' : '未登录'}</span><div class="hint">${escapeHtml(state.detail)}</div>` }
   function escapeHtml(value) { const node = document.createElement('span'); node.textContent = value; return node.innerHTML }
   async function load() {
@@ -73,6 +92,24 @@
   function syncManual() { $('proxyUrl').disabled = selected('proxy') !== 'manual' }
   document.querySelectorAll('input[name=proxy]').forEach(input => input.addEventListener('change', syncManual))
   $('refresh').onclick = async () => { view = await api.refreshStatus(); renderStatus() }
+  $('chooseProject').onclick = async () => { const root = await api.selectProject(); if (!root) return; projectView = await api.getProjectPolicy(root); renderProject() }
+  function lines(id) { return $(id).value.split('\n').map(value => value.trim()).filter(Boolean) }
+  function renderProject() {
+    const policy = projectView.policy; $('projectEditor').hidden = false; $('projectRoot').value = policy.projectRoot
+    $('projectExecution').value = policy.defaultExecutionMode; $('projectPermission').value = policy.permissionCap; $('projectNetwork').value = policy.network; $('projectProxy').value = policy.proxy.mode
+    $('projectProxyUrl').value = policy.proxy.url || ''; $('projectProvider').value = policy.defaultProvider || ''; $('projectModel').value = policy.defaultModel || ''; $('projectReview').checked = policy.crossReview
+    $('projectReadRoots').value = policy.readRoots.join('\n'); $('projectWriteRoots').value = policy.writeRoots.join('\n'); $('projectState').textContent = projectView.recoveryWarning || (projectView.configured ? '已启用项目覆盖。' : '尚未启用；当前显示最小权限草稿。'); syncProjectProxy()
+  }
+  function syncProjectProxy() { $('projectProxyUrl').disabled = $('projectProxy').value !== 'manual' }
+  $('projectProxy').onchange = syncProjectProxy
+  $('saveProject').onclick = async () => {
+    const permissionCap = $('projectPermission').value, network = $('projectNetwork').value, writeRoots = lines('projectWriteRoots'); const expanded = permissionCap !== 'read-only' || network === 'allow' || writeRoots.length > 0
+    const confirmed = !expanded || confirm('该策略允许更高权限、联网或文件写入。确认仅对受控项目启用吗？'); if (!confirmed) return
+    const proxyMode = $('projectProxy').value; const policy = { version: 1, projectRoot: $('projectRoot').value, defaultExecutionMode: $('projectExecution').value, permissionCap, network, proxy: proxyMode === 'manual' ? { mode: proxyMode, url: $('projectProxyUrl').value } : { mode: proxyMode }, crossReview: $('projectReview').checked, readRoots: lines('projectReadRoots'), writeRoots }
+    if ($('projectProvider').value.trim()) policy.defaultProvider = $('projectProvider').value.trim(); if ($('projectModel').value.trim()) policy.defaultModel = $('projectModel').value.trim()
+    try { projectView = await api.saveProjectPolicy(policy, confirmed); renderProject(); $('notice').textContent = '项目策略草稿已保存；运行时接入完成后才会影响任务。' } catch (error) { $('notice').textContent = error.message || String(error) }
+  }
+  $('disableProject').onclick = async () => { if (!projectView) return; projectView = await api.deleteProjectPolicy(projectView.policy.projectRoot); renderProject(); $('notice').textContent = '已停用该项目覆盖。' }
   async function login(product) { $('notice').textContent = '正在打开终端登录…'; try { await api.login(product); $('notice').textContent = '终端已打开。登录完成后点击“刷新状态”。' } catch (error) { $('notice').textContent = error.message || String(error) } }
   $('save').onclick = async () => {
     const permission = selected('permission'); let confirmed = false

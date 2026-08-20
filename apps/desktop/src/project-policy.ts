@@ -33,6 +33,22 @@ export interface ProjectPolicyReadResult {
 
 const POLICY_FILE = 'desktop-project-policies.json'
 
+/** Create the least-authority editable draft for a project without enabling it. */
+export function defaultProjectPolicy(projectRoot: string): DesktopProjectPolicy {
+  const root = normalizeRoot(projectRoot)
+  return {
+    version: 1,
+    projectRoot: root,
+    defaultExecutionMode: 'local-only',
+    permissionCap: 'read-only',
+    network: 'deny',
+    proxy: { mode: 'inherit' },
+    crossReview: false,
+    readRoots: [root],
+    writeRoots: [],
+  }
+}
+
 /** Read all configured policies; invalid files are preserved and replaced by an empty store. */
 export async function readProjectPolicies(dshHome: string): Promise<ProjectPolicyReadResult> {
   const target = join(dshHome, POLICY_FILE)

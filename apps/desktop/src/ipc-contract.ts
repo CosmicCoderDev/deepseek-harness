@@ -33,6 +33,10 @@ export const IPC_SETTINGS_LOGIN = 'dsh:settings:login'
 export const IPC_SETTINGS_REFRESH_STATUS = 'dsh:settings:refresh-status'
 export const IPC_SETTINGS_RESTART_HOST = 'dsh:settings:restart-host'
 export const IPC_SETTINGS_STATUS_CHANGED = 'dsh:settings:status-changed'
+export const IPC_PROJECT_POLICY_SELECT = 'dsh:project-policy:select'
+export const IPC_PROJECT_POLICY_GET = 'dsh:project-policy:get'
+export const IPC_PROJECT_POLICY_SAVE = 'dsh:project-policy:save'
+export const IPC_PROJECT_POLICY_DELETE = 'dsh:project-policy:delete'
 
 export type DesktopSubagentProduct = 'codex' | 'claude'
 
@@ -56,5 +60,25 @@ export interface DesktopSettingsView {
   readonly providers: readonly DesktopProviderView[]
   readonly statusCheckedAt: string
   readonly restartRequired: boolean
+  readonly recoveryWarning?: string
+}
+
+export interface DesktopProjectPolicyValue {
+  readonly version: 1
+  readonly projectRoot: string
+  readonly defaultExecutionMode: 'local-only' | 'auto-select' | 'codex-claude' | 'codex-direct' | 'claude-direct' | 'codex-claude-review'
+  readonly defaultProvider?: string
+  readonly defaultModel?: string
+  readonly permissionCap: 'read-only' | 'project-development' | 'full-access'
+  readonly network: 'inherit' | 'allow' | 'deny'
+  readonly proxy: { readonly mode: 'inherit' | 'system' | 'direct' } | { readonly mode: 'manual'; readonly url: string }
+  readonly crossReview: boolean
+  readonly readRoots: readonly string[]
+  readonly writeRoots: readonly string[]
+}
+
+export interface DesktopProjectPolicyView {
+  readonly configured: boolean
+  readonly policy: DesktopProjectPolicyValue
   readonly recoveryWarning?: string
 }

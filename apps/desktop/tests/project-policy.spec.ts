@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
+  defaultProjectPolicy,
   readProjectPolicies,
   validateProjectPolicy,
   writeProjectPolicies,
@@ -24,6 +25,10 @@ function policy(root: string): DesktopProjectPolicy {
 }
 
 describe('desktop project policies', () => {
+  it('creates an inactive least-authority draft', () => {
+    expect(defaultProjectPolicy('/workspace/project')).toEqual(policy('/workspace/project'))
+  })
+
   it('validates a least-authority project policy', () => {
     expect(validateProjectPolicy(policy('/workspace/project'))).toEqual(policy('/workspace/project'))
   })

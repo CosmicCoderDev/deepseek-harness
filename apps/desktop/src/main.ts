@@ -22,8 +22,10 @@ import {
   IPC_SETTINGS_COPY_DIAGNOSTICS, IPC_SETTINGS_GET, IPC_SETTINGS_LOGIN, IPC_SETTINGS_OPEN_LOGS,
   IPC_SETTINGS_REFRESH_STATUS, IPC_SETTINGS_RESTART_HOST, IPC_SETTINGS_SAVE,
   IPC_SETTINGS_STATUS_CHANGED, IPC_SETTINGS_TEST,
+  IPC_PROJECT_POLICY_DELETE, IPC_PROJECT_POLICY_GET, IPC_PROJECT_POLICY_SAVE, IPC_PROJECT_POLICY_SELECT,
   type DesktopFetchResponse, type DesktopStreamEvent,
   type DesktopSettingsView,
+  type DesktopProjectPolicyView,
 } from './ipc-contract.ts'
 import {
   isSafeExternalUrl,
@@ -53,6 +55,13 @@ import {
   writeDesktopSettings,
   type DesktopSettings,
 } from './desktop-settings.ts'
+import {
+  defaultProjectPolicy,
+  readProjectPolicies,
+  validateProjectPolicy,
+  writeProjectPolicies,
+  type DesktopProjectPolicy,
+} from './project-policy.ts'
 
 const APP_NAME = 'DeepSeek Harness'
 const SMOKE_TEST = process.argv.includes('--smoke-test')
@@ -82,6 +91,8 @@ let proxyRefresh: NodeJS.Timeout | undefined
 let statusRefresh: NodeJS.Timeout | undefined
 let statusService: SubagentStatusService | undefined
 let settingsRecoveryWarning: string | undefined
+let projectPolicyRecoveryWarning: string | undefined
+let projectPolicies: ReadonlyMap<string, DesktopProjectPolicy> = new Map()
 let restartRequired = false
 let hostRestarting = false
 const activeRequests = new Map<string, { controller: AbortController; url: string }>()
@@ -355,6 +366,58 @@ function installIpc(): void {
     await restartDesktopHost()
     return await desktopSettingsView()
   })
+  ipcMain.handle(IPC_PROJECT_POLICY_SELECT, async (event) => {
+    assertSettingsSender(event.sender.id)
+    if (settingsWindow === undefined || settingsWindow.isDestroyed()) throw new Error('桌面设置窗口不可用')
+    const result = await dialog.showOpenDialog(settingsWindow, {
+      title: '选择项目目录',
+      properties: ['openDirectory', 'createDirectory'],
+    })
+    return result.canceled ? undefined : result.filePaths[0]
+  })
+  ipcMain.handle(IPC_PROJECT_POLICY_GET, (event, projectRoot: unknown): DesktopProjectPolicyView => {
+    assertSettingsSender(event.sender.id)
+    if (typeof projectRoot !== 'string') throw new Error('项目目录无效')
+    return projectPolicyView(projectRoot)
+  })
+  ipcMain.handle(IPC_PROJECT_POLICY_SAVE, async (event, raw: unknown, confirmExpansion: unknown) => {
+    assertSettingsSender(event.sender.id)
+    const policy = validateProjectPolicy(raw)
+    if (projectPolicyExpandsAuthority(policy) && confirmExpansion !== true) {
+      throw new Error('扩大项目权限、联网或写入范围需要二次确认')
+    }
+    const next = new Map(projectPolicies)
+    next.set(policy.projectRoot, policy)
+    await writeProjectPolicies(proxyHome, next)
+    projectPolicies = next
+    projectPolicyRecoveryWarning = undefined
+    recordDesktopDiagnostic('info', `desktop project policy saved: ${policy.projectRoot}`)
+    return projectPolicyView(policy.projectRoot)
+  })
+  ipcMain.handle(IPC_PROJECT_POLICY_DELETE, async (event, projectRoot: unknown) => {
+    assertSettingsSender(event.sender.id)
+    if (typeof projectRoot !== 'string') throw new Error('项目目录无效')
+    const draft = defaultProjectPolicy(projectRoot)
+    const next = new Map(projectPolicies)
+    next.delete(draft.projectRoot)
+    await writeProjectPolicies(proxyHome, next)
+    projectPolicies = next
+    recordDesktopDiagnostic('info', `desktop project policy disabled: ${draft.projectRoot}`)
+    return projectPolicyView(draft.projectRoot)
+  })
+}
+
+function projectPolicyView(projectRoot: string): DesktopProjectPolicyView {
+  const draft = defaultProjectPolicy(projectRoot)
+  return {
+    configured: projectPolicies.has(draft.projectRoot),
+    policy: projectPolicies.get(draft.projectRoot) ?? draft,
+    ...(projectPolicyRecoveryWarning === undefined ? {} : { recoveryWarning: projectPolicyRecoveryWarning }),
+  }
+}
+
+function projectPolicyExpandsAuthority(policy: DesktopProjectPolicy): boolean {
+  return policy.permissionCap !== 'read-only' || policy.network === 'allow' || policy.writeRoots.length > 0
 }
 
 async function desktopSettingsView(): Promise<DesktopSettingsView> {
@@ -477,8 +540,9 @@ async function verifyPackagedSettingsSurface(): Promise<void> {
     })
   }
   const result = await window.webContents.executeJavaScript(`(async () => {
-    if (document.querySelector('#save') === null || document.querySelector('#providers') === null) throw new Error('settings controls missing')
+    if (document.querySelector('#save') === null || document.querySelector('#providers') === null || document.querySelector('#chooseProject') === null) throw new Error('settings controls missing')
     if (typeof window.__DSH_SETTINGS__.login !== 'function') throw new Error('settings login bridge missing')
+    if (typeof window.__DSH_SETTINGS__.saveProjectPolicy !== 'function') throw new Error('project policy bridge missing')
     const initial = await window.__DSH_SETTINGS__.get()
     if (!initial.recoveryWarning) throw new Error('corrupt settings recovery warning missing')
     if (initial.providers.map(provider => provider.id).join(',') !== 'codex,claude') throw new Error('provider registry projection missing')
@@ -500,6 +564,20 @@ async function verifyPackagedSettingsSurface(): Promise<void> {
     }, false)
     if (!saved.restartRequired) throw new Error('permission change did not require Host restart')
     const restarted = await window.__DSH_SETTINGS__.restartHost()
+    const projectRoot = '/tmp/dsh-packaged-policy-smoke'
+    const draft = await window.__DSH_SETTINGS__.getProjectPolicy(projectRoot)
+    if (draft.configured || draft.policy.network !== 'deny') throw new Error('unsafe project policy draft')
+    let expansionRejected = false
+    try {
+      await window.__DSH_SETTINGS__.saveProjectPolicy({ ...draft.policy, network: 'allow' }, false)
+    } catch {
+      expansionRejected = true
+    }
+    if (!expansionRejected) throw new Error('project authority expansion was saved without confirmation')
+    const configured = await window.__DSH_SETTINGS__.saveProjectPolicy(draft.policy, false)
+    if (!configured.configured) throw new Error('project policy did not persist')
+    const disabled = await window.__DSH_SETTINGS__.deleteProjectPolicy(projectRoot)
+    if (disabled.configured) throw new Error('project policy did not disable')
     return { mode: restarted.settings.proxy.mode, permission: restarted.settings.subagentPermission, restartRequired: restarted.restartRequired }
   })()`, true) as { mode: string; permission: string; restartRequired: boolean }
   if (result.mode !== 'direct' || result.permission !== 'project-development' || result.restartRequired) {
@@ -678,6 +756,10 @@ if (!ownsInstance) {
     if (settingsRecoveryWarning !== undefined) {
       recordDesktopDiagnostic('warn', settingsRecoveryWarning)
     }
+    const projectPolicyResult = await readProjectPolicies(dshHome)
+    projectPolicies = projectPolicyResult.policies
+    projectPolicyRecoveryWarning = projectPolicyResult.recoveryWarning
+    if (projectPolicyRecoveryWarning !== undefined) recordDesktopDiagnostic('warn', projectPolicyRecoveryWarning)
     applySubagentPermission(desktopSettings.subagentPermission)
     proxySnapshot = applyProxySettings(desktopSettings.proxy)
     statusService = new SubagentStatusService(
