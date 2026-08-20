@@ -54,6 +54,8 @@ Choose **DeepSeek Harness → Desktop Settings** or **Help → Proxy Settings** 
 
 The page also provides Read-only Analysis, Project Development, and Full Access permission tiers. Read-only maps to Codex `never` and Claude Code `plan`; Project Development maps to Codex `approve-for-me` and Claude Code `acceptEdits`; Full Access maps to both products' native bypass modes and requires a second confirmation. Permission changes take effect on the next desktop Host start.
 
+Codex and Claude Code each have a **Log in / Log in again** button. It opens Terminal and runs only the fixed official login command from the copy bundled in the application; the settings renderer cannot supply a command or executable path. While the page is visible, provider status and the effective system-proxy summary refresh every five seconds. After browser authorization finishes, choose **Refresh Status** if the change is not shown yet.
+
 **Copy Diagnostics** on the desktop settings page writes the report directly to the clipboard. File exports and clipboard copies share the same redaction for API keys, bearer tokens, passwords, OAuth authorization parameters, login state values, and email addresses. Known authentication, proxy, timeout, Node-wrapper, and packaged-dependency failures are translated into actionable messages; unknown failures retain only a redacted, bounded technical summary.
 
 ## Build for macOS
@@ -63,6 +65,14 @@ pnpm dist:desktop:mac
 ```
 
 The application bundle, DMG, and ZIP are written under `apps/desktop/dist`. The current local build is intentionally unsigned (`identity: null`), so macOS Gatekeeper may require an explicit first launch. Public distribution still requires an Apple Developer ID certificate, hardened-runtime signing, and notarization.
+
+An authenticated, opt-in live smoke test checks both product CLIs from the installed app in read-only/no-tool modes:
+
+```sh
+pnpm --dir apps/desktop run smoke:subagents:mac
+```
+
+An unauthenticated product prints `SKIP`; a skip is not a pass.
 
 To install the local build:
 

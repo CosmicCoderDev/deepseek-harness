@@ -98,6 +98,8 @@ Apple Developer ID 签名、公证和可信自动更新不属于本阶段。它�
 
 ## 当前实施结果
 
-阶段 A、B 和无凭据的阶段 C 已完成实现。打包冒烟测试会实际打开设置页，通过受限 IPC 保存并回读代理与权限，然后确认主界面插件完成挂载。真实产品测试继续使用已登录机器上的 Codex 和 Claude Code provider 测试；缺少登录状态时不得记为通过。
+阶段 A、B 和阶段 C 已完成实现。打包冒烟测试会实际打开设置页，通过受限 IPC 保存并回读代理与权限，确认登录入口存在，然后确认主界面插件完成挂载。设置页为 Codex 和 Claude Code 提供固定的“登录／重新登录”入口，在 macOS 终端中自动执行安装包内 CLI 的官方登录命令；页面可见时每五秒刷新登录状态和系统代理摘要。首次启动引导可直接进入该设置页。
+
+真实产品验证通过 `pnpm --dir apps/desktop run smoke:subagents:mac` 显式执行。脚本只使用安装包内二进制，Codex 固定为 `read-only` 与临时会话，Claude Code 固定为 `plan`、禁用工具且不保存会话；缺少登录状态时输出 `SKIP`，不得记为通过。2026-08-20 已在本机已登录环境验证 Codex 返回 `DSH_CODEX_OK`、Claude Code 返回 `DSH_CLAUDE_OK`。
 
 阶段 D 已执行两轮打包验证，但暂不启用。第一轮只解包 Codex、Claude Code 与原生模块；第二轮解包完整 `node_modules`。两轮都能启动主进程和 Host，但 `dsh-plugin://` 的 parser preload 在 `app.asar` 路径组合下未注册 `@deepseek-ai/dsh-client-modules/client.js`，扩展后的冒烟测试因此正确失败。当前构建继续使用 `asar: false`，直到自定义协议的插件物理路径和 preload 执行顺序具备单独回归覆盖。

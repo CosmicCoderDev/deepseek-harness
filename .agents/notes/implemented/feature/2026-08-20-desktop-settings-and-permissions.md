@@ -16,6 +16,8 @@ Three product-level permission tiers map to provider-native modes: Read-only Ana
 
 The packaged smoke test opens the real settings asset, verifies its controls, proves that an unconfirmed Full Access write is rejected, and round-trips a safe setting through IPC. ASAR remains disabled: two packaging experiments reached Host startup but broke the parser preload for `@deepseek-ai/dsh-client-modules/client.js`. It may be enabled only after custom-protocol bundle paths and preload ordering have dedicated packaged regression coverage.
 
+Provider login actions are a closed IPC enum. The main process derives the packaged executable paths and opens Terminal with the corresponding official login command; renderer input can select Codex or Claude Code but cannot supply shell text or a path. A separate opt-in live smoke script uses read-only/no-tool invocations, reports unauthenticated products as `SKIP`, and requires a fixed sentinel from each authenticated product.
+
 ## Alternatives considered
 
 **Continue adding native message boxes.** This would minimize new UI code, but Electron message boxes cannot provide a coherent editable form and had already forced manual proxy input through the clipboard.
@@ -26,4 +28,4 @@ The packaged smoke test opens the real settings asset, verifies its controls, pr
 
 ## Consequences
 
-Ordinary users can inspect and configure desktop networking and subagent authority without a terminal. The main process, rather than page JavaScript, remains the security boundary for validation and unrestricted-access confirmation. Existing proxy preferences migrate without deleting their legacy source. Permission changes are persisted for subsequent provider starts. Package size and file count remain higher while ASAR is disabled, but the known-working preload path is preserved and the condition for revisiting ASAR is explicit.
+Ordinary users can inspect and configure desktop networking and subagent authority without manually constructing terminal commands. The main process, rather than page JavaScript, remains the security boundary for validation, login command selection, and unrestricted-access confirmation. Existing proxy preferences migrate without deleting their legacy source. Permission changes are persisted for subsequent provider starts. Package size and file count remain higher while ASAR is disabled, but the known-working preload path is preserved and the condition for revisiting ASAR is explicit.

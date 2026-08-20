@@ -9,9 +9,11 @@ import {
   IPC_SETTINGS_COPY_DIAGNOSTICS,
   IPC_SETTINGS_GET,
   IPC_SETTINGS_OPEN_LOGS,
+  IPC_SETTINGS_LOGIN,
   IPC_SETTINGS_SAVE,
   IPC_SETTINGS_TEST,
   type DesktopSettingsView,
+  type DesktopSubagentProduct,
   type DesktopFetchRequest,
   type DesktopFetchResponse,
   type DesktopStreamEvent,
@@ -58,6 +60,7 @@ contextBridge.exposeInMainWorld('__DSH_SETTINGS__', {
   test: (): Promise<string> => ipcRenderer.invoke(IPC_SETTINGS_TEST) as Promise<string>,
   copyDiagnostics: (): Promise<void> => ipcRenderer.invoke(IPC_SETTINGS_COPY_DIAGNOSTICS) as Promise<void>,
   openLogs: (): Promise<void> => ipcRenderer.invoke(IPC_SETTINGS_OPEN_LOGS) as Promise<void>,
+  login: (product: DesktopSubagentProduct): Promise<void> => ipcRenderer.invoke(IPC_SETTINGS_LOGIN, product) as Promise<void>,
 })
 
 function isStreamEvent(value: unknown): value is DesktopStreamEvent {

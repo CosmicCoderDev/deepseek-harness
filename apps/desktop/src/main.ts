@@ -19,7 +19,7 @@ import {
 import { startDesktopHost, type DesktopHost } from './host.ts'
 import {
   IPC_ABORT, IPC_BOOT, IPC_FETCH, IPC_STREAM,
-  IPC_SETTINGS_COPY_DIAGNOSTICS, IPC_SETTINGS_GET, IPC_SETTINGS_OPEN_LOGS,
+  IPC_SETTINGS_COPY_DIAGNOSTICS, IPC_SETTINGS_GET, IPC_SETTINGS_LOGIN, IPC_SETTINGS_OPEN_LOGS,
   IPC_SETTINGS_SAVE, IPC_SETTINGS_TEST,
   type DesktopFetchResponse, type DesktopStreamEvent,
   type DesktopSettingsView,
@@ -35,6 +35,7 @@ import {
   RECOMMENDED_OLLAMA_MODEL,
 } from './onboarding.ts'
 import { formatSubagentStatus, inspectSubagents } from './subagent-status.ts'
+import { openSubagentLogin } from './subagent-login.ts'
 import { ensureDesktopPreset } from './desktop-preset.ts'
 import {
   applyProxySettings,
@@ -327,6 +328,12 @@ function installIpc(): void {
     assertSettingsSender(event.sender.id)
     await openLogsFolder()
   })
+  ipcMain.handle(IPC_SETTINGS_LOGIN, async (event, product: unknown) => {
+    assertSettingsSender(event.sender.id)
+    if (product !== 'codex' && product !== 'claude') throw new Error('未知的子代理登录类型')
+    recordDesktopDiagnostic('info', `opening ${product} login in Terminal`)
+    await openSubagentLogin(product, app.getAppPath(), process.execPath)
+  })
 }
 
 async function desktopSettingsView(): Promise<DesktopSettingsView> {
@@ -434,7 +441,8 @@ async function verifyPackagedSettingsSurface(): Promise<void> {
     })
   }
   const result = await window.webContents.executeJavaScript(`(async () => {
-    if (document.querySelector('#save') === null) throw new Error('settings controls missing')
+    if (document.querySelector('#save') === null || document.querySelector('#loginCodex') === null || document.querySelector('#loginClaude') === null) throw new Error('settings controls missing')
+    if (typeof window.__DSH_SETTINGS__.login !== 'function') throw new Error('settings login bridge missing')
     let unsafeSaveRejected = false
     try {
       await window.__DSH_SETTINGS__.save({
@@ -497,15 +505,16 @@ async function showLocalModelSetup(firstRun: boolean): Promise<void> {
       '',
       ollamaConfigurationText(),
     ].join('\n'),
-    buttons: ['Copy Configuration / 复制配置', 'Close / 关闭'],
+    buttons: ['Open Desktop Settings / 打开桌面设置', 'Copy Configuration / 复制配置', 'Close / 关闭'],
     defaultId: 0,
-    cancelId: 1,
+    cancelId: 2,
     noLink: true,
   }
   const result = mainWindow === undefined
     ? await dialog.showMessageBox(options)
     : await dialog.showMessageBox(mainWindow, options)
-  if (result.response === 0) clipboard.writeText(ollamaConfigurationText())
+  if (result.response === 0) openSettingsWindow()
+  if (result.response === 1) clipboard.writeText(ollamaConfigurationText())
   if (firstRun) await markOnboardingShown()
 }
 

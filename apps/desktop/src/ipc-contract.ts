@@ -29,6 +29,9 @@ export const IPC_SETTINGS_SAVE = 'dsh:settings:save'
 export const IPC_SETTINGS_TEST = 'dsh:settings:test'
 export const IPC_SETTINGS_COPY_DIAGNOSTICS = 'dsh:settings:copy-diagnostics'
 export const IPC_SETTINGS_OPEN_LOGS = 'dsh:settings:open-logs'
+export const IPC_SETTINGS_LOGIN = 'dsh:settings:login'
+
+export type DesktopSubagentProduct = 'codex' | 'claude'
 
 export interface DesktopSettingsView {
   readonly settings: {

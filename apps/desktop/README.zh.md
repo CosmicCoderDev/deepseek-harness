@@ -54,6 +54,8 @@ pnpm desktop
 
 同一页面提供只读分析、项目开发和完全访问三档子代理权限。只读分析映射为 Codex `never` 与 Claude Code `plan`；项目开发映射为 Codex `approve-for-me` 与 Claude Code `acceptEdits`；完全访问映射为两个产品的原生绕过模式，并要求二次确认。权限保存后在下一次启动桌面 Host 时生效。
 
+Codex 与 Claude Code 各自提供**登录／重新登录**按钮。按钮会打开终端，并且只运行应用内置副本的固定官方登录命令；设置页渲染器不能传入命令或可执行文件路径。页面可见时，provider 状态和系统代理生效摘要每五秒自动刷新。网页授权完成后，如果状态尚未变化，可以点击**刷新状态**。
+
 桌面设置页中的**复制诊断**会把报告直接写入剪贴板。文件导出和剪贴板复制使用同一套脱敏逻辑，会隐藏 API Key、Bearer Token、密码、OAuth 授权码、登录状态参数和邮箱地址。已知的登录、代理、超时、Node 包装器和打包依赖错误会显示可操作的中文原因；未知错误只保留经过脱敏和长度限制的技术摘要。
 
 ## 构建 macOS 安装包
@@ -63,6 +65,14 @@ pnpm dist:desktop:mac
 ```
 
 应用 bundle、DMG 和 ZIP 会生成在 `apps/desktop/dist` 下。当前本地构建有意不签名（`identity: null`），因此 macOS Gatekeeper 可能要求首次显式确认打开。若要公开分发，仍需 Apple Developer ID 证书、Hardened Runtime 签名和公证。
+
+已登录环境可显式运行真实产品冒烟测试，使用安装包内两个 CLI，并固定为只读／无工具模式：
+
+```sh
+pnpm --dir apps/desktop run smoke:subagents:mac
+```
+
+未登录的产品会输出 `SKIP`；跳过不等于通过。
 
 安装本地构建：
 

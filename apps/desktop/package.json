@@ -12,6 +12,7 @@
     "start": "pnpm run build && electron .",
     "test": "vitest run --root ../.. apps/desktop/tests",
     "smoke:packaged:mac": "node scripts/smoke-packaged-mac.mjs",
+    "smoke:subagents:mac": "node scripts/smoke-subagents-mac.mjs",
     "dist:mac": "pnpm -w run build && pnpm run build && electron-builder --mac dmg zip && pnpm run smoke:packaged:mac"
   },
   "build": {
