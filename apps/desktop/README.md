@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Native Electron application for DeepSeek Harness. It starts the Host inside the Electron main process, loads the built Web UI from `file://`, serves client plugin bundles through the private `dsh-plugin://` protocol, and carries unary plus streaming RPC over a context-isolated IPC Fetch bridge. It does not open an HTTP or WebSocket listening port and does not require an external Node.js runtime after packaging.
+Native Electron application for DeepSeek Harness. It starts the Host inside the Electron main process, serves the built Web UI through the private `dsh-app://` protocol, serves client plugin bundles through `dsh-plugin://`, and carries unary plus streaming RPC over a context-isolated IPC Fetch bridge. It does not open an HTTP or WebSocket listening port and does not require an external Node.js runtime after packaging.
 
 ## Current status
 
@@ -73,11 +73,11 @@ Run the packaged smoke test again without rebuilding:
 pnpm --filter @deepseek-ai/dsh-desktop smoke:packaged:mac
 ```
 
-The test uses an isolated temporary home, boots the complete Host, loads the renderer and private plugin bundles, waits for the React root, and then exits. It cannot pass because of packages linked from the checkout or an existing user profile.
+The test uses an isolated temporary home, boots the complete Host, loads the renderer and private plugin bundles, waits for the registered root UI slot, and then exits. A visible boot failure fails immediately, so an error page cannot produce a false-positive result. It cannot pass because of packages linked from the checkout or an existing user profile.
 
 ## Transport boundary
 
-The preload exposes only boot metadata and three bounded carrier operations: request, stream subscription, and abort. The main process accepts only GET/POST requests to the synthetic `http://dsh.internal` authority, enforces request identifiers and a body-size limit, and dispatches them directly to the in-process Host. Client bundles are read only from the Host-generated plugin manifest and are never exposed through a general filesystem protocol.
+The preload exposes only boot metadata and three bounded carrier operations: request, stream subscription, and abort. The main process accepts only GET/POST requests to the synthetic `http://dsh.internal` authority, enforces request identifiers and a body-size limit, and dispatches them directly to the in-process Host. `dsh-app://app` serves only the packaged Web root and injects the Host-generated rc.8 boot facade into `index.html`; `dsh-plugin://` reads only bundles present in that manifest. Neither protocol is a general filesystem bridge.
 
 ## Troubleshooting
 

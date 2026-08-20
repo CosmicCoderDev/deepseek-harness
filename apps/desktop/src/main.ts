@@ -1,12 +1,13 @@
 /** Native Electron shell with an in-process Host and least-authority IPC carrier. */
 
 import { access, readFile, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { dirname, extname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   app, BrowserWindow, clipboard, dialog, ipcMain, Menu, protocol, shell,
   type IpcMainInvokeEvent, type WebContents,
 } from 'electron'
+import { injectBootManifest } from '@deepseek-ai/dsh-client-modules'
 import {
   desktopLogPath,
   exportDesktopDiagnostics,
@@ -36,6 +37,9 @@ const ONBOARDING_MARKER = 'desktop-local-model-onboarding-v1'
 protocol.registerSchemesAsPrivileged([{
   scheme: 'dsh-plugin',
   privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
+}, {
+  scheme: 'dsh-app',
+  privileges: { standard: true, secure: true, supportFetchAPI: true },
 }])
 
 let mainWindow: BrowserWindow | undefined
@@ -92,7 +96,7 @@ function createWindow(reveal = true): BrowserWindow {
     return { action: 'deny' }
   })
   window.webContents.on('will-navigate', (event, target) => {
-    if (target.startsWith('file:')) return
+    if (target.startsWith('dsh-app://app/')) return
     event.preventDefault()
     if (isSafeExternalUrl(target)) void shell.openExternal(target)
   })
@@ -205,15 +209,53 @@ function installPluginProtocol(): void {
   })
 }
 
-function webIndexPath(): string {
-  return app.isPackaged
-    ? join(process.resourcesPath, 'web', 'index.html')
-    : fileURLToPath(new URL('../../web/dist/index.html', import.meta.url))
+function webRootPath(): string {
+  return app.isPackaged ? join(process.resourcesPath, 'web') : fileURLToPath(new URL('../../web/dist', import.meta.url))
+}
+
+const CONTENT_TYPES: Readonly<Record<string, string>> = {
+  '.css': 'text/css; charset=utf-8',
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.map': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.ttf': 'font/ttf',
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+}
+
+function installApplicationProtocol(): void {
+  protocol.handle('dsh-app', async (request) => {
+    if (host === undefined) return new Response('Host unavailable', { status: 503 })
+    const url = new URL(request.url)
+    if (url.hostname !== 'app') return new Response('not found', { status: 404 })
+    const root = resolve(webRootPath())
+    const pathname = decodeURIComponent(url.pathname)
+    const target = resolve(root, `.${pathname}`)
+    if (target !== root && !target.startsWith(`${root}${sep}`)) return new Response('not found', { status: 404 })
+    try {
+      if (pathname === '/' || pathname === '/index.html') {
+        const html = await readFile(join(root, 'index.html'), 'utf8')
+        return new Response(injectBootManifest(html, host.graph), {
+          headers: { 'content-type': 'text/html; charset=utf-8' },
+        })
+      }
+      const content = await readFile(target)
+      return new Response(content, {
+        headers: { 'content-type': CONTENT_TYPES[extname(target)] ?? 'application/octet-stream' },
+      })
+    } catch {
+      return new Response('not found', { status: 404 })
+    }
+  })
 }
 
 async function openDesktop(reveal = true): Promise<void> {
   mainWindow ??= createWindow(reveal)
-  await mainWindow.loadFile(webIndexPath())
+  await mainWindow.loadURL('dsh-app://app/index.html')
 }
 
 async function waitForRenderer(): Promise<void> {
@@ -221,11 +263,12 @@ async function waitForRenderer(): Promise<void> {
     if (mainWindow === undefined || mainWindow.isDestroyed()) {
       throw new Error('desktop: renderer window closed during packaged smoke test')
     }
-    const ready = await mainWindow.webContents.executeJavaScript(
-      "document.querySelector('#root')?.childElementCount > 0",
+    const state = await mainWindow.webContents.executeJavaScript(
+      "({ ready: document.querySelector('[data-slot=\"root\"]') !== null, boot: document.querySelector('[data-dsh-boot]')?.textContent ?? '' })",
       true,
-    ) as boolean
-    if (ready) return
+    ) as { ready: boolean; boot: string }
+    if (state.ready) return
+    if (state.boot.includes('Failed to load plugins')) throw new Error(`desktop: renderer boot failed: ${state.boot}`)
     await new Promise((resolvePromise) => { setTimeout(resolvePromise, 250) })
   }
   throw new Error('desktop: renderer did not mount during packaged smoke test')
@@ -367,6 +410,7 @@ if (!ownsInstance) {
     recordDesktopDiagnostic('info', 'in-process Host started')
     installIpc()
     installPluginProtocol()
+    installApplicationProtocol()
     await openDesktop(!SMOKE_TEST)
     if (SMOKE_TEST) {
       if (host.toolNames.includes('web_search')) {

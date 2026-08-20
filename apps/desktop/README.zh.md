@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-DeepSeek Harness 原生 Electron 应用。它在 Electron 主进程内启动 Host，通过 `file://` 加载已构建的 Web UI，以私有 `dsh-plugin://` 协议提供客户端插件 bundle，并通过上下文隔离的 IPC Fetch 桥承载单次 RPC 与流式 RPC。应用不会打开 HTTP 或 WebSocket 监听端口，打包后也不依赖外部 Node.js 运行时。
+DeepSeek Harness 原生 Electron 应用。它在 Electron 主进程内启动 Host，通过私有 `dsh-app://` 协议提供已构建的 Web UI，以 `dsh-plugin://` 提供客户端插件 bundle，并通过上下文隔离的 IPC Fetch 桥承载单次 RPC 与流式 RPC。应用不会打开 HTTP 或 WebSocket 监听端口，打包后也不依赖外部 Node.js 运行时。
 
 ## 当前状态
 
@@ -73,11 +73,11 @@ pnpm dist:desktop:mac
 pnpm --filter @deepseek-ai/dsh-desktop smoke:packaged:mac
 ```
 
-测试会使用隔离的临时用户目录，启动完整 Host，加载渲染进程和私有插件 bundle，等待 React 根节点出现，然后退出。因此它不会因为源码仓库中的链接包或已有用户 profile 而错误通过。
+测试会使用隔离的临时用户目录，启动完整 Host，加载渲染进程和私有插件 bundle，等待已注册的根 UI 插槽出现，然后退出。出现可见启动错误时会立即失败，因此错误页面不能造成假阳性。它不会因为源码仓库中的链接包或已有用户 profile 而错误通过。
 
 ## 传输边界
 
-preload 只暴露启动元数据和三个有界载体操作：请求、流订阅与中止。主进程仅接受指向合成地址 `http://dsh.internal` 的 GET/POST 请求，校验请求标识并限制请求体大小，然后直接分派给进程内 Host。客户端 bundle 只允许从 Host 生成的插件清单中读取，绝不通过通用文件系统协议暴露。
+preload 只暴露启动元数据和三个有界载体操作：请求、流订阅与中止。主进程仅接受指向合成地址 `http://dsh.internal` 的 GET/POST 请求，校验请求标识并限制请求体大小，然后直接分派给进程内 Host。`dsh-app://app` 只提供打包后的 Web 根目录，并向 `index.html` 注入 Host 生成的 rc.8 启动 facade；`dsh-plugin://` 只读取该清单中的 bundle。两种协议都不是通用文件系统桥。
 
 ## 排错
 
