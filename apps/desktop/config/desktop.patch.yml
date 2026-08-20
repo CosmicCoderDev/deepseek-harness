@@ -26,6 +26,7 @@
     - id: subagent-codex
       name: '@deepseek-ai/dsh-subagent-codex'
       config:
+        permissionMode: !!js process.env.DSH_CODEX_PERMISSION_MODE ?? 'never'
         # The provider launches the package-local JavaScript wrapper with
         # process.execPath. In Electron that path is the app executable, so
         # opt the child into Electron's supported Node-compatible mode.
@@ -34,6 +35,8 @@
 
     - id: subagent-claude-code
       name: '@deepseek-ai/dsh-subagent-claude-code'
+      config:
+        permissionMode: !!js process.env.DSH_CLAUDE_PERMISSION_MODE ?? 'plan'
 
 - id: connection
   inject: []

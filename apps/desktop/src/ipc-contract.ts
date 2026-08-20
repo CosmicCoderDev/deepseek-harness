@@ -24,3 +24,19 @@ export const IPC_FETCH = 'dsh:fetch'
 export const IPC_ABORT = 'dsh:abort'
 export const IPC_STREAM = 'dsh:stream'
 export const IPC_BOOT = 'dsh:boot'
+export const IPC_SETTINGS_GET = 'dsh:settings:get'
+export const IPC_SETTINGS_SAVE = 'dsh:settings:save'
+export const IPC_SETTINGS_TEST = 'dsh:settings:test'
+export const IPC_SETTINGS_COPY_DIAGNOSTICS = 'dsh:settings:copy-diagnostics'
+export const IPC_SETTINGS_OPEN_LOGS = 'dsh:settings:open-logs'
+
+export interface DesktopSettingsView {
+  readonly settings: {
+    readonly version: 1
+    readonly proxy: { readonly mode: 'system' | 'manual' | 'direct'; readonly url?: string }
+    readonly subagentPermission: 'read-only' | 'project-development' | 'full-access'
+  }
+  readonly proxySummary: string
+  readonly codex: { readonly installed: boolean; readonly authenticated: boolean; readonly detail: string }
+  readonly claude: { readonly installed: boolean; readonly authenticated: boolean; readonly detail: string }
+}

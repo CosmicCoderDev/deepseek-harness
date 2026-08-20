@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>DeepSeek Harness 桌面设置</title>
+  <style>
+    :root { color-scheme: light dark; font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #f4f5f7; color: #202124; }
+    main { max-width: 820px; margin: 0 auto; padding: 28px; }
+    h1 { margin: 0 0 6px; font-size: 26px; } .lead { color: #69707a; margin: 0 0 24px; }
+    section { background: white; border: 1px solid #e1e4e8; border-radius: 14px; padding: 20px; margin: 14px 0; box-shadow: 0 4px 16px #0000000a; }
+    h2 { margin: 0 0 14px; font-size: 17px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .service { border: 1px solid #e4e7eb; border-radius: 10px; padding: 14px; }
+    .service strong { display: block; font-size: 15px; margin-bottom: 8px; }
+    .ok { color: #16803b; } .bad { color: #c43b32; }
+    label { display: block; margin: 9px 0; } input[type="radio"] { margin-right: 8px; }
+    input[type="url"] { box-sizing: border-box; width: 100%; border: 1px solid #c8cdd3; border-radius: 8px; padding: 10px 12px; font: inherit; }
+    .hint, pre { color: #69707a; font-size: 12px; line-height: 1.55; }
+    pre { white-space: pre-wrap; background: #f6f7f8; border-radius: 8px; padding: 10px; }
+    button { border: 1px solid #c8cdd3; background: white; color: #202124; border-radius: 8px; padding: 9px 14px; font: inherit; cursor: pointer; }
+    button.primary { background: #2563eb; border-color: #2563eb; color: white; }
+    button + button { margin-left: 8px; } .actions { margin-top: 16px; }
+    #notice { min-height: 20px; margin-top: 12px; color: #2563eb; }
+    @media (prefers-color-scheme: dark) { body { background:#17181a;color:#eceff3 } section,.service,button { background:#232529;border-color:#3b3e44;color:#eceff3 } input[type=url],pre { background:#1c1e21;border-color:#454951;color:#eceff3 } .lead,.hint,pre {color:#a9b0ba} }
+  </style>
+</head>
+<body>
+<main>
+  <h1>桌面功能设置</h1>
+  <p class="lead">Desktop Features · 子代理、代理、权限与诊断</p>
+  <section><h2>子代理状态</h2><div class="grid"><div class="service" id="codex"></div><div class="service" id="claude"></div></div><div class="actions"><button id="refresh">刷新状态</button></div></section>
+  <section><h2>代理</h2>
+    <label><input type="radio" name="proxy" value="system">自动读取 macOS 系统代理</label>
+    <label><input type="radio" name="proxy" value="manual">手动代理</label>
+    <input id="proxyUrl" type="url" placeholder="http://127.0.0.1:7897" autocomplete="off">
+    <label><input type="radio" name="proxy" value="direct">不使用代理</label>
+    <pre id="proxySummary"></pre><p class="hint">Ollama、localhost、127.0.0.1、::1 和 .local 始终直连。</p>
+  </section>
+  <section><h2>子代理权限</h2>
+    <label><input type="radio" name="permission" value="read-only">只读分析 — Codex never / Claude plan</label>
+    <label><input type="radio" name="permission" value="project-development">项目开发 — 允许工作区修改，危险操作继续受限</label>
+    <label><input type="radio" name="permission" value="full-access">完全访问 — 绕过原生审批与沙箱，仅限受控环境</label>
+    <p class="hint">权限在下次启动桌面 Host 时生效。完全访问保存时需要再次确认。</p>
+  </section>
+  <section><h2>连接与诊断</h2><div><button id="test">测试四项连接</button><button id="copy">复制脱敏诊断</button><button id="logs">打开日志目录</button></div><pre id="testResult" hidden></pre></section>
+  <div class="actions"><button class="primary" id="save">保存设置</button><span id="notice"></span></div>
+</main>
+<script>
+  const api = window.__DSH_SETTINGS__
+  const $ = id => document.getElementById(id)
+  let view
+  function service(name, state) { return `<strong>${name}</strong><span class="${state.authenticated ? 'ok' : 'bad'}">${state.installed ? '已内置' : '未安装'} · ${state.authenticated ? '已登录' : '未登录'}</span><div class="hint">${escapeHtml(state.detail)}</div>` }
+  function escapeHtml(value) { const node = document.createElement('span'); node.textContent = value; return node.innerHTML }
+  async function load() {
+    view = await api.get()
+    $('codex').innerHTML = service('Codex', view.codex); $('claude').innerHTML = service('Claude Code', view.claude)
+    document.querySelector(`input[name=proxy][value=${view.settings.proxy.mode}]`).checked = true
+    $('proxyUrl').value = view.settings.proxy.url || ''
+    document.querySelector(`input[name=permission][value=${view.settings.subagentPermission}]`).checked = true
+    $('proxySummary').textContent = view.proxySummary
+    syncManual(); $('notice').textContent = ''
+  }
+  function selected(name) { return document.querySelector(`input[name=${name}]:checked`).value }
+  function syncManual() { $('proxyUrl').disabled = selected('proxy') !== 'manual' }
+  document.querySelectorAll('input[name=proxy]').forEach(input => input.addEventListener('change', syncManual))
+  $('refresh').onclick = load
+  $('save').onclick = async () => {
+    const permission = selected('permission'); let confirmed = false
+    if (permission === 'full-access') confirmed = confirm('完全访问会绕过 Codex 与 Claude Code 的原生审批和沙箱。确认只在受控项目中启用吗？')
+    if (permission === 'full-access' && !confirmed) { $('notice').textContent = '已取消完全访问设置。'; return }
+    const mode = selected('proxy'); const proxy = mode === 'manual' ? { mode, url: $('proxyUrl').value } : { mode }
+    try { view = await api.save({ version: 1, proxy, subagentPermission: permission }, confirmed); $('proxySummary').textContent = view.proxySummary; $('notice').textContent = '已保存。权限将在下次启动时生效。' }
+    catch (error) { $('notice').textContent = error.message || String(error) }
+  }
+  $('test').onclick = async () => { $('test').disabled = true; $('testResult').hidden = false; $('testResult').textContent = '正在测试…'; try { $('testResult').textContent = await api.test() } finally { $('test').disabled = false } }
+  $('copy').onclick = async () => { await api.copyDiagnostics(); $('notice').textContent = '诊断信息已复制并自动脱敏。' }
+  $('logs').onclick = () => api.openLogs()
+  load().catch(error => { $('notice').textContent = error.message || String(error) })
+</script>
+</body>
+</html>

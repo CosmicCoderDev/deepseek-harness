@@ -24,4 +24,4 @@ Codex and Claude Code startup boundaries classify recognized authentication, tim
 
 ## Consequences
 
-Users can change and verify desktop networking without restarting or opening a terminal, while Ollama and other loopback services stay direct. Support reports become easier to share and safer by default. The proxy dialog currently accepts a manual address from the clipboard because Electron has no native text-prompt API; a future full settings page can reuse the same on-disk preference and projection functions. Reachability checks prove transport availability, not subscription state or API authorization.
+Users can change and verify desktop networking without restarting or opening a terminal, while Ollama and other loopback services stay direct. Support reports become easier to share and safer by default. The formal desktop settings page accepts manual proxy addresses directly and reuses the same validated preference and environment-projection functions. Reachability checks prove transport availability, not subscription state or API authorization.

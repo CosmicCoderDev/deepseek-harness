@@ -19,7 +19,10 @@ import {
 import { startDesktopHost, type DesktopHost } from './host.ts'
 import {
   IPC_ABORT, IPC_BOOT, IPC_FETCH, IPC_STREAM,
+  IPC_SETTINGS_COPY_DIAGNOSTICS, IPC_SETTINGS_GET, IPC_SETTINGS_OPEN_LOGS,
+  IPC_SETTINGS_SAVE, IPC_SETTINGS_TEST,
   type DesktopFetchResponse, type DesktopStreamEvent,
+  type DesktopSettingsView,
 } from './ipc-contract.ts'
 import {
   isSafeExternalUrl,
@@ -36,12 +39,16 @@ import { ensureDesktopPreset } from './desktop-preset.ts'
 import {
   applyProxySettings,
   formatProxySnapshot,
-  readProxySettings,
-  writeProxySettings,
-  type ProxySettings,
   type ProxySnapshot,
 } from './proxy-settings.ts'
 import { formatConnectivityResults, testProviderConnectivity } from './connectivity.ts'
+import {
+  applySubagentPermission,
+  readDesktopSettings,
+  validateDesktopSettings,
+  writeDesktopSettings,
+  type DesktopSettings,
+} from './desktop-settings.ts'
 
 const APP_NAME = 'DeepSeek Harness'
 const SMOKE_TEST = process.argv.includes('--smoke-test')
@@ -56,17 +63,23 @@ protocol.registerSchemesAsPrivileged([{
 }])
 
 let mainWindow: BrowserWindow | undefined
+let settingsWindow: BrowserWindow | undefined
 let host: DesktopHost | undefined
 let stopping = false
 let stopped = false
 let proxyHome = ''
 let proxySnapshot: ProxySnapshot = applyProxySettings({ mode: 'direct' }, {})
+let desktopSettings: DesktopSettings = {
+  version: 1,
+  proxy: { mode: 'system' },
+  subagentPermission: 'read-only',
+}
 let proxyRefresh: NodeJS.Timeout | undefined
 const activeRequests = new Map<string, AbortController>()
 
 function installApplicationMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate([
-    { label: APP_NAME, submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
+    { label: APP_NAME, submenu: [{ role: 'about' }, { type: 'separator' }, { label: 'Desktop Settings… / 桌面设置…', accelerator: 'CommandOrControl+,', click: openSettingsWindow }, { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] },
     { role: 'fileMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
     {
       role: 'help',
@@ -81,7 +94,7 @@ function installApplicationMenu(): void {
         },
         {
           label: 'Proxy Settings / 代理设置',
-          click: () => { void showProxySettings() },
+          click: openSettingsWindow,
         },
         { type: 'separator' },
         {
@@ -111,62 +124,37 @@ async function showSubagentStatus(): Promise<void> {
     : dialog.showMessageBox(mainWindow, options))
 }
 
-async function showProxySettings(): Promise<void> {
-  const options: MessageBoxOptions = {
-    type: 'info',
-    title: 'Proxy Settings / 代理设置',
-    message: '桌面端代理管理',
-    detail: `${formatProxySnapshot(proxySnapshot)}\n\n手动模式会读取剪贴板中的代理地址。`,
-    buttons: ['自动系统代理', '手动（读取剪贴板）', '不使用代理', '测试连接', '复制诊断', '关闭'],
-    defaultId: 0,
-    cancelId: 5,
-    noLink: true,
+function openSettingsWindow(): BrowserWindow {
+  if (settingsWindow !== undefined && !settingsWindow.isDestroyed()) {
+    settingsWindow.show()
+    settingsWindow.focus()
+    return settingsWindow
   }
-  const result = mainWindow === undefined
-    ? await dialog.showMessageBox(options)
-    : await dialog.showMessageBox(mainWindow, options)
-  if (result.response === 5) return
-  if (result.response === 3) {
-    await showConnectivityTest()
-    return
-  }
-  if (result.response === 4) {
-    clipboard.writeText(await createDesktopDiagnostics(diagnosticMetadata()))
-    await dialog.showMessageBox({ type: 'info', title: APP_NAME, message: '诊断信息已复制并自动脱敏。' })
-    return
-  }
-  const settings: ProxySettings = result.response === 0
-    ? { mode: 'system' }
-    : result.response === 1
-      ? { mode: 'manual', url: clipboard.readText() }
-      : { mode: 'direct' }
-  try {
-    await updateProxySettings(settings)
-    await showProxySettings()
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    recordDesktopDiagnostic('warn', 'proxy settings rejected', message)
-    await dialog.showMessageBox({ type: 'error', title: '代理设置无效', message })
-  }
-}
-
-async function updateProxySettings(settings: ProxySettings): Promise<void> {
-  await writeProxySettings(proxyHome, settings)
-  proxySnapshot = applyProxySettings(settings)
-  recordDesktopDiagnostic('info', `proxy settings updated\n${formatProxySnapshot(proxySnapshot)}`)
-}
-
-async function showConnectivityTest(): Promise<void> {
-  const results = await testProviderConnectivity()
-  const detail = formatConnectivityResults(results)
-  recordDesktopDiagnostic(results.every(result => result.ok) ? 'info' : 'warn', 'provider connectivity test', detail)
-  await dialog.showMessageBox({
-    type: results.every(result => result.ok) ? 'info' : 'warning',
-    title: 'Connectivity Test / 连通性测试',
-    message: '连接测试完成',
-    detail,
-    buttons: ['好'],
+  const window = new BrowserWindow({
+    title: 'DeepSeek Harness Desktop Settings',
+    width: 900,
+    height: 820,
+    minWidth: 720,
+    minHeight: 640,
+    ...(mainWindow === undefined ? {} : { parent: mainWindow }),
+    show: false,
+    backgroundColor: '#f4f5f7',
+    webPreferences: {
+      preload: fileURLToPath(new URL('./preload.cjs', import.meta.url)),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
   })
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  window.webContents.on('will-navigate', (event) => { event.preventDefault() })
+  window.once('ready-to-show', () => { window.show() })
+  window.on('closed', () => { settingsWindow = undefined })
+  settingsWindow = window
+  void window.loadFile(join(app.getAppPath(), 'assets', 'settings.html')).catch((error: unknown) => {
+    recordDesktopDiagnostic('error', 'desktop settings page failed to load', error)
+  })
+  return window
 }
 
 function diagnosticMetadata(): Record<string, string> {
@@ -227,6 +215,12 @@ function createWindow(reveal = true): BrowserWindow {
 function assertMainSender(senderId: number): void {
   if (mainWindow === undefined || mainWindow.webContents.id !== senderId) {
     throw new Error('desktop: rejected IPC from an unknown renderer')
+  }
+}
+
+function assertSettingsSender(senderId: number): void {
+  if (settingsWindow === undefined || settingsWindow.webContents.id !== senderId) {
+    throw new Error('desktop: rejected settings IPC from an unknown renderer')
   }
 }
 
@@ -294,9 +288,55 @@ function installIpc(): void {
     if (typeof id === 'string') activeRequests.get(id)?.abort()
   })
   ipcMain.on(IPC_BOOT, (event) => {
-    assertMainSender(event.sender.id)
-    event.returnValue = host?.graph
+    if (settingsWindow?.webContents.id === event.sender.id) {
+      event.returnValue = undefined
+    } else {
+      assertMainSender(event.sender.id)
+      event.returnValue = host?.graph
+    }
   })
+  ipcMain.handle(IPC_SETTINGS_GET, async (event) => {
+    assertSettingsSender(event.sender.id)
+    return await desktopSettingsView()
+  })
+  ipcMain.handle(IPC_SETTINGS_SAVE, async (event, raw: unknown, confirmFullAccess: unknown) => {
+    assertSettingsSender(event.sender.id)
+    const next = validateDesktopSettings(raw)
+    if (next.subagentPermission === 'full-access' && confirmFullAccess !== true) {
+      throw new Error('完全访问需要用户二次确认')
+    }
+    await writeDesktopSettings(proxyHome, next)
+    desktopSettings = next
+    proxySnapshot = applyProxySettings(next.proxy)
+    applySubagentPermission(next.subagentPermission)
+    recordDesktopDiagnostic('info', `desktop settings updated\n${formatProxySnapshot(proxySnapshot)}\npermission: ${next.subagentPermission}`)
+    return await desktopSettingsView()
+  })
+  ipcMain.handle(IPC_SETTINGS_TEST, async (event) => {
+    assertSettingsSender(event.sender.id)
+    const results = await testProviderConnectivity()
+    const detail = formatConnectivityResults(results)
+    recordDesktopDiagnostic(results.every(result => result.ok) ? 'info' : 'warn', 'provider connectivity test', detail)
+    return detail
+  })
+  ipcMain.handle(IPC_SETTINGS_COPY_DIAGNOSTICS, async (event) => {
+    assertSettingsSender(event.sender.id)
+    clipboard.writeText(await createDesktopDiagnostics(diagnosticMetadata()))
+  })
+  ipcMain.handle(IPC_SETTINGS_OPEN_LOGS, async (event) => {
+    assertSettingsSender(event.sender.id)
+    await openLogsFolder()
+  })
+}
+
+async function desktopSettingsView(): Promise<DesktopSettingsView> {
+  const status = await inspectSubagents(app.getAppPath())
+  return {
+    settings: desktopSettings,
+    proxySummary: formatProxySnapshot(proxySnapshot),
+    codex: status.codex,
+    claude: status.claude,
+  }
 }
 
 function installPluginProtocol(): void {
@@ -311,7 +351,8 @@ function installPluginProtocol(): void {
       return new Response(content, {
         headers: { 'content-type': target.sourceMap ? 'application/json' : 'text/javascript; charset=utf-8' },
       })
-    } catch {
+    } catch (error) {
+      recordDesktopDiagnostic('warn', `plugin bundle unavailable: ${target.id}`, error)
       return new Response('not found', { status: 404 })
     }
   })
@@ -380,6 +421,42 @@ async function waitForRenderer(): Promise<void> {
     await new Promise((resolvePromise) => { setTimeout(resolvePromise, 250) })
   }
   throw new Error('desktop: renderer did not mount during packaged smoke test')
+}
+
+async function verifyPackagedSettingsSurface(): Promise<void> {
+  const window = openSettingsWindow()
+  if (window.webContents.isLoading()) {
+    await new Promise<void>((resolvePromise, reject) => {
+      window.webContents.once('did-finish-load', () => { resolvePromise() })
+      window.webContents.once('did-fail-load', (_event, code, description) => {
+        reject(new Error(`desktop: settings load failed (${code} ${description})`))
+      })
+    })
+  }
+  const result = await window.webContents.executeJavaScript(`(async () => {
+    if (document.querySelector('#save') === null) throw new Error('settings controls missing')
+    let unsafeSaveRejected = false
+    try {
+      await window.__DSH_SETTINGS__.save({
+        version: 1,
+        proxy: { mode: 'direct' },
+        subagentPermission: 'full-access'
+      }, false)
+    } catch {
+      unsafeSaveRejected = true
+    }
+    if (!unsafeSaveRejected) throw new Error('full access was saved without confirmation')
+    const saved = await window.__DSH_SETTINGS__.save({
+      version: 1,
+      proxy: { mode: 'direct' },
+      subagentPermission: 'read-only'
+    }, false)
+    return { mode: saved.settings.proxy.mode, permission: saved.settings.subagentPermission }
+  })()`, true) as { mode: string; permission: string }
+  if (result.mode !== 'direct' || result.permission !== 'read-only') {
+    throw new Error('desktop: packaged settings did not persist through IPC')
+  }
+  window.destroy()
 }
 
 async function stopHost(): Promise<void> {
@@ -510,10 +587,12 @@ if (!ownsInstance) {
     })
     const dshHome = process.env.DSH_HOME ?? join(app.getPath('home'), '.dsh')
     proxyHome = dshHome
-    proxySnapshot = applyProxySettings(await readProxySettings(dshHome))
+    desktopSettings = await readDesktopSettings(dshHome)
+    applySubagentPermission(desktopSettings.subagentPermission)
+    proxySnapshot = applyProxySettings(desktopSettings.proxy)
     recordDesktopDiagnostic('info', `desktop proxy initialized\n${formatProxySnapshot(proxySnapshot)}`)
     proxyRefresh = setInterval(() => {
-      if (proxySnapshot.settings.mode !== 'system') return
+      if (desktopSettings.proxy.mode !== 'system') return
       const next = applyProxySettings(proxySnapshot.settings)
       if (JSON.stringify(next.environment) === JSON.stringify(proxySnapshot.environment)) return
       proxySnapshot = next
@@ -534,6 +613,7 @@ if (!ownsInstance) {
         throw new Error('desktop: local-first build unexpectedly exposes web_search')
       }
       await waitForRenderer()
+      await verifyPackagedSettingsSurface()
       console.log('[desktop] packaged smoke test passed')
       mainWindow?.destroy()
       await stopHost()

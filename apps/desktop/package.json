@@ -20,6 +20,7 @@
     "asar": false,
     "files": [
       "lib/**/*",
+      "assets/**/*",
       "config/**/*",
       "package.json"
     ],

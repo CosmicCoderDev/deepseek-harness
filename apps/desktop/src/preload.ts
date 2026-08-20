@@ -6,6 +6,12 @@ import {
   IPC_BOOT,
   IPC_FETCH,
   IPC_STREAM,
+  IPC_SETTINGS_COPY_DIAGNOSTICS,
+  IPC_SETTINGS_GET,
+  IPC_SETTINGS_OPEN_LOGS,
+  IPC_SETTINGS_SAVE,
+  IPC_SETTINGS_TEST,
+  type DesktopSettingsView,
   type DesktopFetchRequest,
   type DesktopFetchResponse,
   type DesktopStreamEvent,
@@ -44,6 +50,14 @@ contextBridge.exposeInMainWorld('__DSH_DESKTOP__', {
     return () => { listeners.delete(id) }
   },
   abort(id: string): void { ipcRenderer.send(IPC_ABORT, id) },
+})
+contextBridge.exposeInMainWorld('__DSH_SETTINGS__', {
+  get: (): Promise<DesktopSettingsView> => ipcRenderer.invoke(IPC_SETTINGS_GET) as Promise<DesktopSettingsView>,
+  save: (settings: DesktopSettingsView['settings'], confirmFullAccess: boolean): Promise<DesktopSettingsView> =>
+    ipcRenderer.invoke(IPC_SETTINGS_SAVE, settings, confirmFullAccess) as Promise<DesktopSettingsView>,
+  test: (): Promise<string> => ipcRenderer.invoke(IPC_SETTINGS_TEST) as Promise<string>,
+  copyDiagnostics: (): Promise<void> => ipcRenderer.invoke(IPC_SETTINGS_COPY_DIAGNOSTICS) as Promise<void>,
+  openLogs: (): Promise<void> => ipcRenderer.invoke(IPC_SETTINGS_OPEN_LOGS) as Promise<void>,
 })
 
 function isStreamEvent(value: unknown): value is DesktopStreamEvent {

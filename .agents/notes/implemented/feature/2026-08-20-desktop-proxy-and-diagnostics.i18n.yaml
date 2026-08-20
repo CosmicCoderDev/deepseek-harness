@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-20-desktop-proxy-and-diagnostics.md
-2026-08-20-desktop-proxy-and-diagnostics.md: a252e7638c174e3eda1bdb1d61051160e377cabf
-2026-08-20-desktop-proxy-and-diagnostics.zh.md: 91f0c9ca832613aec964e1bfffea0baf9ab2fbb7
+2026-08-20-desktop-proxy-and-diagnostics.md: a28c255f3dc6fcd2d50d7d831ca5320597110ed8
+2026-08-20-desktop-proxy-and-diagnostics.zh.md: b36444635f4071740f00266d8682bd3001e34ad2
