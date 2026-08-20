@@ -40,7 +40,7 @@ export class DesktopSubagentProviderRegistry {
   register(provider: DesktopSubagentProvider): void {
     if (this.providers.has(provider.id)) throw new Error(`重复的桌面 Provider ID: ${provider.id}`)
     for (const capability of provider.capabilities) {
-      if (!ALLOWED_CAPABILITIES.has(capability)) throw new Error(`未知的桌面 Provider 能力: ${String(capability)}`)
+      if (!ALLOWED_CAPABILITIES.has(capability)) throw new Error(`未知的桌面 Provider 能力: ${capability}`)
     }
     this.providers.set(provider.id, provider)
   }
@@ -70,7 +70,7 @@ function parseClaudeAuth(output: string): ProductStatus {
 }
 
 function parseCodexAuth(output: string): ProductStatus {
-  const authenticated = /logged in/i.test(output)
+  const authenticated = !/not\s+logged\s+in/i.test(output) && /logged in/i.test(output)
   return { installed: true, authenticated, detail: authenticated ? output.trim() : '未登录' }
 }
 
@@ -98,7 +98,7 @@ const codex: DesktopSubagentProvider = {
     if (!await exists(wrapper)) return { installed: false, authenticated: false, detail: '未内置' }
     return await execute(process.execPath, [wrapper, 'login', 'status'], {
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, timeout: 10_000,
-    }).then(result => parseCodexAuth(`${result.stdout}${result.stderr}`), error => ({
+    }).then(result => parseCodexAuth(`${result.stdout}${result.stderr}`), (error: unknown) => ({
       installed: true, authenticated: false, detail: friendlyDetail('Codex', error),
     }))
   },
@@ -124,7 +124,7 @@ const claude: DesktopSubagentProvider = {
     const binary = join(appPath, 'node_modules', '@anthropic-ai/claude-agent-sdk-darwin-arm64/claude')
     if (!await exists(binary)) return { installed: false, authenticated: false, detail: '未内置' }
     return await execute(binary, ['auth', 'status'], { env: process.env, timeout: 10_000 })
-      .then(result => parseClaudeAuth(result.stdout), error => ({
+      .then(result => parseClaudeAuth(result.stdout), (error: unknown) => ({
         installed: true, authenticated: false, detail: friendlyDetail('Claude Code', error),
       }))
   },

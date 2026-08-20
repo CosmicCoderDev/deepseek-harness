@@ -70,7 +70,9 @@ const ROSTER_MOVED = {
   },
 }
 
-async function bench() {
+async function bench(
+  resolveProjectPolicy: (projectRoot: string) => Promise<{ executionMode: string } | undefined> = async () => undefined,
+) {
   const ctx = new Context()
   // The host's answer, mutable so a spec can move the default the way the
   // settings surface does and watch who re-reads it.
@@ -85,6 +87,7 @@ async function bench() {
   new TestRemote(ctx)
   const calls: string[] = []
   ctx.provide('connection', {
+    resolveProjectPolicy,
     api: {
       agentPresets: {
         list: () => { calls.push('list'); return Promise.resolve(ROSTER) },
@@ -568,6 +571,130 @@ describe('ui-agent-preset apply', () => {
     await seat.load()
 
     expect(seat.hooks.agentPresetSeat.getSnapshot().current).toBe('cordis')
+    conversation()
+  })
+
+  it('applies a policy-eligible session once and remembers it on a repeat list movement', async () => {
+    const { ctx, slots, calls } = await bench()
+    declareRoot(slots)
+    const conversation = declareConversation(slots)
+    ctx.provide('conversation', {} as never)
+    const state: {
+      current?: string
+      byId: Record<string, { id: string; blank: boolean; agentPreset?: string; cwd?: string }>
+    } = {
+      current: 's1',
+      // Already carries a composition of its own, and a workspace root: the
+      // session both skips the early-return guard and reports an existing
+      // agentPreset back through the seat's currentSession projection.
+      byId: { s1: { id: 's1', blank: true, cwd: '/repo', agentPreset: 'standard' } },
+    }
+    const sessions = sessionsDouble(state)
+    ctx.provide('sessions', sessions as never)
+    ctx.provide('workspaces', workspacesDouble() as never)
+    await ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'workspaces'], apply }).await()
+    const chip = (slots.entries('conversation.hero.agentPreset')[0]!
+      .inject as unknown as () => AgentPresetSeatInjected)()
+
+    await chip.load()
+    await chip.select('minimal')
+    expect(calls).toContain('select:minimal')
+    const applied = calls.filter(call => call === 'select:minimal').length
+
+    // A second list movement for the same still-current, still-blank session
+    // must not re-resolve or re-apply — it takes the short remembered path.
+    sessions.notify()
+    await Promise.resolve()
+    expect(calls.filter(call => call === 'select:minimal')).toHaveLength(applied)
+    conversation()
+  })
+
+  it('stages and applies a desktop project policy default when nothing was staged yet', async () => {
+    const resolvedFor: string[] = []
+    const { ctx, slots, calls } = await bench(async (cwd) => {
+      resolvedFor.push(cwd)
+      return { executionMode: 'yolo' }
+    })
+    declareRoot(slots)
+    const conversation = declareConversation(slots)
+    ctx.provide('conversation', {} as never)
+    const state: {
+      current?: string
+      byId: Record<string, { id: string; blank: boolean; agentPreset?: string; cwd?: string }>
+    } = {
+      current: 's1',
+      byId: { s1: { id: 's1', blank: true, cwd: '/repo' } },
+    }
+    ctx.provide('sessions', sessionsDouble(state) as never)
+    ctx.provide('workspaces', workspacesDouble() as never)
+    await ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'workspaces'], apply }).await()
+    const seat = (slots.entries('conversation.hero.agentPreset')[0]!
+      .inject as unknown as () => AgentPresetSeatInjected)()
+
+    await vi.waitFor(() => { expect(calls).toContain('select:yolo') })
+    expect(resolvedFor).toEqual(['/repo'])
+    expect(seat.hooks.agentPresetSeat.getSnapshot().current).toBe('yolo')
+    conversation()
+  })
+
+  it('drops a pending desktop project policy resolution once the session is no longer current', async () => {
+    let release: (() => void) | undefined
+    const { ctx, slots, calls } = await bench(() => new Promise<{ executionMode: string }>((resolve) => {
+      release = () => { resolve({ executionMode: 'yolo' }) }
+    }))
+    declareRoot(slots)
+    const conversation = declareConversation(slots)
+    ctx.provide('conversation', {} as never)
+    const state: {
+      current?: string
+      byId: Record<string, { id: string; blank: boolean; agentPreset?: string; cwd?: string }>
+    } = {
+      current: 's1',
+      byId: { s1: { id: 's1', blank: true, cwd: '/repo' } },
+    }
+    ctx.provide('sessions', sessionsDouble(state) as never)
+    ctx.provide('workspaces', workspacesDouble() as never)
+    await ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'workspaces'], apply }).await()
+    await vi.waitFor(() => { expect(release).toBeDefined() })
+
+    // The session ends (closed, or the workspace switched away) while the
+    // policy lookup is still pending on the desktop bridge.
+    delete state.current
+    release!()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(calls.filter(call => call === 'select:yolo')).toHaveLength(0)
+    conversation()
+  })
+
+  it('drops a pending desktop project policy resolution once the session stops being blank', async () => {
+    let release: (() => void) | undefined
+    const { ctx, slots, calls } = await bench(() => new Promise<{ executionMode: string }>((resolve) => {
+      release = () => { resolve({ executionMode: 'yolo' }) }
+    }))
+    declareRoot(slots)
+    const conversation = declareConversation(slots)
+    ctx.provide('conversation', {} as never)
+    const state: {
+      current?: string
+      byId: Record<string, { id: string; blank: boolean; agentPreset?: string; cwd?: string }>
+    } = {
+      current: 's1',
+      byId: { s1: { id: 's1', blank: true, cwd: '/repo' } },
+    }
+    ctx.provide('sessions', sessionsDouble(state) as never)
+    ctx.provide('workspaces', workspacesDouble() as never)
+    await ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'workspaces'], apply }).await()
+    await vi.waitFor(() => { expect(release).toBeDefined() })
+
+    // A turn ran on the same session while the policy lookup was pending.
+    state.byId['s1'] = { id: 's1', blank: false, cwd: '/repo' }
+    release!()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(calls.filter(call => call === 'select:yolo')).toHaveLength(0)
     conversation()
   })
 

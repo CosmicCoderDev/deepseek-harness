@@ -4,6 +4,7 @@ import { formatSubagentStatus, parseClaudeAuth, parseCodexAuth } from '../src/su
 describe('desktop subagent status', () => {
   it('recognizes authenticated bundled products', () => {
     expect(parseCodexAuth('Logged in using ChatGPT').authenticated).toBe(true)
+    expect(parseCodexAuth('Not logged in').authenticated).toBe(false)
     expect(parseClaudeAuth('{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"pro"}'))
       .toMatchObject({ installed: true, authenticated: true, detail: 'claude.ai · pro' })
   })

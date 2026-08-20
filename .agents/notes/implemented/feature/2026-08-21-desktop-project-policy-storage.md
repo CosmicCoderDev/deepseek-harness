@@ -10,11 +10,13 @@ Desktop settings were global. The next product phase requires per-project execut
 
 ## Decision
 
-The desktop application stores configured policies in `$DSH_HOME/desktop-project-policies.json`, keyed by normalized absolute project root. The versioned file is written through a private temporary file and atomic rename. Missing storage means no project override. Invalid storage is preserved under a timestamped corrupt filename and replaced with an empty store.
+The desktop application stores configured policies in `$DSH_HOME/desktop-project-policies.json`, keyed by normalized absolute project root. The versioned file is written with the shared `writeFileAtomic` utility, which uses an exclusive random sibling and atomic rename. Missing storage means no project override. Invalid storage is preserved under a timestamped corrupt filename and replaced with an empty store.
 
 Each policy validates a closed desktop execution preset, optional bounded provider and model identifiers, a subagent permission cap, network policy, credential-free proxy override, cross-review default, and absolute read/write roots. The project root must be readable, every write root must be within a read root, and manual proxy URLs containing user information are rejected.
 
 A narrow settings preload API lets the renderer select a directory, load its safe draft or configured policy, save a validated policy, and disable its override. The main process owns directory selection and storage. Any policy that permits more than read-only authority, explicitly enables networking, or contains a write root requires a separate confirmation flag that is enforced again at IPC.
+
+The main-window preload additionally exposes only policy resolution by absolute project root. The Connection client owns that native carrier detail and publishes a transport-neutral `resolveProjectPolicy` service method; the agent-preset UI consumes the declared Connection service instead of reading Electron globals. Resolution applies only to a blank session. An explicit session choice has priority, including when it is applied while a policy lookup is pending. Network denial resolves to the local-only preset and cross-review resolves to the fixed Codex-to-Claude review preset.
 
 ## Alternatives considered
 
@@ -26,4 +28,4 @@ A narrow settings preload API lets the renderer select a directory, load its saf
 
 ## Consequences
 
-The storage, validation, and settings surface are independently testable and credential-free. Runtime enforcement remains a separate follow-up layer; until task creation consumes this store, saving a policy does not change task behavior and the application must not claim otherwise.
+The storage, validation, settings surface, and default execution-mode resolution are independently testable and credential-free. Permission caps, project proxy overrides, and read/write roots remain policy drafts until the Host execution and sandbox layers consume them; the application must not claim those fields are enforced yet.

@@ -29,9 +29,9 @@ describe('desktop subagent provider registry', () => {
   it('rejects duplicate ids and unknown capabilities', () => {
     const registry = new DesktopSubagentProviderRegistry()
     registry.register(fake('codex'))
-    expect(() => registry.register(fake('codex'))).toThrow('重复')
+    expect(() => { registry.register(fake('codex')) }).toThrow('重复')
     const invalid = { ...fake('claude'), capabilities: ['remote-module-path'] } as unknown as DesktopSubagentProvider
-    expect(() => registry.register(invalid)).toThrow('未知')
+    expect(() => { registry.register(invalid) }).toThrow('未知')
   })
 
   it('owns native permission mappings', () => {

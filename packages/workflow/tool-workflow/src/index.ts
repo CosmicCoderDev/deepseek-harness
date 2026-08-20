@@ -249,7 +249,7 @@ async function runFixedStage(
 
 function reviewStatus(output: readonly ContentBlock[]): FixedReviewResult['status'] {
   const text = output.flatMap(block => block.type === 'text' ? [block.text] : []).join('\n')
-  const verdict = /VERDICT:\s*(PASS|NEEDS_CHANGES|BLOCKED)/iu.exec(text)?.[1]
+  const verdict = /VERDICT:\s*(PASS|NEEDS_CHANGES|BLOCKED)/iu.exec(text)?.[1]?.toUpperCase()
   if (verdict === 'PASS') return 'approved'
   if (verdict === 'NEEDS_CHANGES') return 'needs-changes'
   return 'blocked'

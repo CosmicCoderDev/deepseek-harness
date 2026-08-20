@@ -9,6 +9,8 @@ import type { RpcMessage } from '../src/client/api.ts'
 import { RpcId } from '../src/client/api.ts'
 import { FixtureApiClient } from '../src/client/fixture.ts'
 import { WebApiClient } from '../src/client/web-api-client.ts'
+import { DesktopApiClient } from '../src/client/desktop-api-client.ts'
+import type { DesktopBridge, DesktopFetchRequest } from '../src/client/desktop-api-client.ts'
 
 type Win = { location?: { hostname: string; search: string; origin?: string } }
 type WebSocketGlobal = { WebSocket?: typeof WebSocket }
@@ -68,6 +70,7 @@ describe('connection client apply', () => {
     const handle = await mount()
     expect(handle.api).toBeInstanceOf(WebApiClient)
     expect(handle.isLoopback).toBe(true)
+    await expect(handle.resolveProjectPolicy('/repo')).resolves.toBeUndefined()
   })
 
   it('selects the fixture client under ?fixture (and with no location at all stays real)', async () => {
@@ -82,6 +85,45 @@ describe('connection client apply', () => {
   it('reports non-loopback page authority through the connection handle', async () => {
     ;(globalThis as Win).location = { hostname: '192.0.2.20', search: '' }
     expect((await mount()).isLoopback).toBe(false)
+  })
+
+  it('mounts the desktop client and RPC caller when the preload bridge is present', async () => {
+    ;(globalThis as Win).location = { hostname: '192.0.2.20', search: '' }
+    const requests: DesktopFetchRequest[] = []
+    const bridge: DesktopBridge = {
+      resolveProjectPolicy: async projectRoot => ({ executionMode: projectRoot === '/repo' ? 'local-only' : 'auto-select' }),
+      request: async (request) => {
+        requests.push(request)
+        const message = JSON.parse(request.body ?? '{}') as { rpcId: string }
+        return {
+          status: 200,
+          headers: [['content-type', 'application/json']],
+          body: new TextEncoder().encode(JSON.stringify({
+            type: 'server-response',
+            rpcId: message.rpcId,
+            result: { ok: true, value: { ref: 'goal-1' } },
+          })),
+          stream: false,
+        }
+      },
+      subscribe: () => () => undefined,
+      abort: () => undefined,
+    }
+    ;(globalThis as Win & { __DSH_DESKTOP__?: DesktopBridge }).__DSH_DESKTOP__ = bridge
+    try {
+      const handle = await mount()
+      // A native bridge always reports loopback, even from a non-loopback page origin.
+      expect(handle.api).toBeInstanceOf(DesktopApiClient)
+      expect(handle.isLoopback).toBe(true)
+      await expect(handle.resolveProjectPolicy('/repo')).resolves.toEqual({ executionMode: 'local-only' })
+
+      await expect(handle.rpc.call('/api', 'goals/create', { args: { agentId: 'agent-1' } }))
+        .resolves.toEqual({ ok: true, value: { ref: 'goal-1' } })
+      expect(requests).toHaveLength(1)
+      expect(requests[0]?.url).toBe('http://dsh.internal/api/goals/create')
+    } finally {
+      delete (globalThis as Win & { __DSH_DESKTOP__?: DesktopBridge }).__DSH_DESKTOP__
+    }
   })
 
   it('start() hands out one loop, rejects a second consumer, and stop() aborts the streams', async () => {

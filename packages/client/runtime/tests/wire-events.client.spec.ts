@@ -68,6 +68,7 @@ async function mount(): Promise<Bench> {
     rpc: {
       call: () => Promise.reject(new Error('unexpected generic RPC call')),
     },
+    resolveProjectPolicy: async () => undefined,
     start: (sinks) => {
       bench.sinks = sinks
       return { stop: () => {} }

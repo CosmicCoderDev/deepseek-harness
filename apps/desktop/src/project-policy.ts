@@ -1,8 +1,8 @@
 /** Versioned, credential-free project policy storage for the desktop application. */
 
-import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename } from 'node:fs/promises'
 import { isAbsolute, join, resolve, sep } from 'node:path'
+import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { DESKTOP_PRESETS, type DesktopPreset } from './desktop-preset.ts'
 import type { SubagentPermission } from './desktop-settings.ts'
 
@@ -87,14 +87,8 @@ export async function writeProjectPolicies(
     if (normalizeRoot(root) !== normalized.projectRoot) throw new Error('项目策略键与项目根目录不一致')
     projects[normalized.projectRoot] = normalized
   }
-  await mkdir(dshHome, { recursive: true })
   const target = join(dshHome, POLICY_FILE)
-  const temporary = join(dshHome, `.desktop-project-policies-${randomUUID()}.tmp`)
-  await writeFile(temporary, `${JSON.stringify({ version: 1, projects }, null, 2)}\n`, {
-    encoding: 'utf8',
-    mode: 0o600,
-  })
-  await rename(temporary, target)
+  await writeFileAtomic(target, `${JSON.stringify({ version: 1, projects }, null, 2)}\n`, { mode: 0o600 })
 }
 
 /** Validate one renderer- or disk-supplied policy and return its canonical form. */

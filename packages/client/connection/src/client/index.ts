@@ -36,7 +36,6 @@ export {
   AbstractApiClient,
   transportError,
 } from './api.ts'
-export { desktopBridge, type DesktopBridge } from './desktop-api-client.ts'
 
 // Connection loop types are public through ConnectionHandle.start; the
 // controller remains package-internal.
@@ -68,6 +67,8 @@ export interface ConnectionHandle {
   readonly hostDescription: HostDescriptionSource
   /** Generic logical RPC channels over the same Connection transport. */
   readonly rpc: ClientConnectionRpc
+  /** Resolve the native desktop policy for a project; web carriers have no override. */
+  resolveProjectPolicy(projectRoot: string): Promise<{ readonly executionMode: string } | undefined>
   /**
    * Start the connect/pump/reconnect loop with the consumer's frame sinks.
    * One consumer owns the streams (the runtime object layer); a second call
@@ -119,6 +120,8 @@ export function apply(ctx: Context): void {
       },
     },
     rpc,
+    resolveProjectPolicy: async projectRoot =>
+      await nativeBridge?.resolveProjectPolicy?.(projectRoot),
     start(sinks, config) {
       if (started) throw new Error('connection: the stream loop is already owned by another consumer')
       started = true

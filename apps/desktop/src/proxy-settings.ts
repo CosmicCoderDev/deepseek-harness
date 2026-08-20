@@ -1,7 +1,8 @@
 /** Persistent desktop proxy preferences and environment projection. */
 
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import {
   LOCAL_PROXY_BYPASS,
   readSystemProxy,
@@ -43,11 +44,7 @@ export async function writeProxySettings(dshHome: string, settings: ProxySetting
   const normalized = settings.mode === 'manual'
     ? { mode: settings.mode, url: validateProxyUrl(settings.url ?? '') }
     : { mode: settings.mode }
-  await mkdir(dshHome, { recursive: true })
-  await writeFile(join(dshHome, SETTINGS_FILE), `${JSON.stringify(normalized, null, 2)}\n`, {
-    encoding: 'utf8',
-    mode: 0o600,
-  })
+  await writeFileAtomic(join(dshHome, SETTINGS_FILE), `${JSON.stringify(normalized, null, 2)}\n`, { mode: 0o600 })
 }
 
 /** Resolve and apply the selected proxy mode to CLI subprocess variables. */

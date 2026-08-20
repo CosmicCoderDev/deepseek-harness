@@ -1,8 +1,8 @@
 /** Versioned desktop preferences shared by the native settings surface and Host boot. */
 
-import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename } from 'node:fs/promises'
 import { join } from 'node:path'
+import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { readProxySettings, validateProxyUrl, type ProxySettings } from './proxy-settings.ts'
 import { desktopSubagentProviders } from './subagent-provider-registry.ts'
 
@@ -61,11 +61,8 @@ export async function readDesktopSettingsWithRecovery(dshHome: string): Promise<
 /** Validate and atomically replace the private desktop settings file. */
 export async function writeDesktopSettings(dshHome: string, value: DesktopSettings): Promise<void> {
   const settings = validateDesktopSettings(value)
-  await mkdir(dshHome, { recursive: true })
   const target = join(dshHome, SETTINGS_FILE)
-  const temporary = join(dshHome, `.desktop-settings-${randomUUID()}.tmp`)
-  await writeFile(temporary, `${JSON.stringify(settings, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 })
-  await rename(temporary, target)
+  await writeFileAtomic(target, `${JSON.stringify(settings, null, 2)}\n`, { mode: 0o600 })
 }
 
 /** Project a user permission tier into fixed provider-native modes. */

@@ -335,7 +335,29 @@ describe('the new-session chip controller', () => {
     const controller = chip(ROSTER, undefined)
     await controller.load()
     controller.stage('minimal')
-    controller.stageDefault('standard')
+    controller.stageDefault('standard', controller.selectionVersion())
+    expect(controller.store.getSnapshot().current).toBe('minimal')
+  })
+
+  it('rejects a policy result captured before an explicit choice was applied', async () => {
+    const writes: Recorded[] = []
+    const current = { id: 's1', blank: true, agentPreset: 'standard' }
+    const controller = chip(ROSTER, current, { writes })
+    await controller.load()
+    const version = controller.selectionVersion()
+
+    await controller.select('minimal')
+    controller.stageDefault('standard', version)
+
+    expect(writes).toEqual([{ ns: 'select', patch: 'minimal' }])
+    expect(controller.store.getSnapshot().current).toBe('minimal')
+  })
+
+  it('stages a project policy default when no task-level choice exists yet', async () => {
+    const controller = chip(ROSTER, undefined)
+    await controller.load()
+    const version = controller.selectionVersion()
+    controller.stageDefault('minimal', version)
     expect(controller.store.getSnapshot().current).toBe('minimal')
   })
 

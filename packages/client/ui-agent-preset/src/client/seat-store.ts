@@ -64,6 +64,9 @@ export class AgentPresetSeatController {
   /** Set while a pick is waiting for a session; cleared once applied. */
   private staged: string | undefined
 
+  /** Advances whenever a user-facing flow stages an explicit choice. */
+  private selectionGeneration = 0
+
   constructor(
     private readonly api: Pick<IApiClient, 'agentPresets'>,
     /** The session the hero is about to hand over to, when there is one. */
@@ -133,14 +136,28 @@ export class AgentPresetSeatController {
    * chip should announce itself on the session it lands on.
    */
   stage(id: string, introduce = false): void {
+    this.selectionGeneration++
     this.staged = id
     this.set({ current: id, error: null, introduce })
   }
 
-  /** Stage a policy default only when the user has not already made a task-level choice. */
-  stageDefault(id: string): void {
-    if (this.staged !== undefined) return
-    this.stage(id)
+  /**
+   * Stage a policy default only when the user has not already made a task-level choice.
+   * @param id - the preset to stage.
+   * @param unchangedSince - selection generation captured before policy resolution.
+   */
+  stageDefault(id: string, unchangedSince: number): void {
+    if (this.staged !== undefined || this.selectionGeneration !== unchangedSince) return
+    this.staged = id
+    this.set({ current: id, error: null, introduce: false })
+  }
+
+  /**
+   * Capture the explicit-selection generation before an asynchronous default lookup.
+   * @returns opaque generation for `stageDefault`.
+   */
+  selectionVersion(): number {
+    return this.selectionGeneration
   }
 
   /** Acknowledge the introduction cue once the chip has played it. */

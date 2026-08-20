@@ -476,6 +476,173 @@ describe('dsh-tool-workflow', () => {
     expect(claudeStarted).toBe(false)
   })
 
+  it('requires a calling agent for the fixed review tool too (fails loud without exec.agent)', async () => {
+    const { ctx } = await setup({ reviewToolName: 'codex_claude_review' })
+    const result = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('review-no-agent'),
+      name: 'codex_claude_review',
+      arguments: { objective: 'Implement feature X' },
+    })
+    expect(result.isError).toBe(true)
+    expect((result.content[0] as { text: string }).text).toContain('requires a calling agent')
+  })
+
+  it('accepts a case-insensitive PASS verdict while ignoring non-text reviewer blocks', async () => {
+    const { ctx, parent } = await setup({ reviewToolName: 'codex_claude_review' })
+    const register = (provider: 'codex' | 'claude-code') => {
+      ctx.subagents.registerProvider({
+        name: provider,
+        capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+        inheritsParentContext: false,
+        start: async () => ({
+          id: SessionId(`${provider}-run`),
+          localAgent: undefined,
+          result: Promise.resolve({
+            output: [
+              { type: 'reasoning', text: 'weighing the evidence' },
+              { type: 'text', text: 'VERDICT: Pass\nAll good.' },
+            ],
+            stopReason: 'completed',
+          }),
+          dispose: async () => undefined,
+        }),
+      })
+    }
+    register('codex')
+    register('claude-code')
+    const result = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('review-approved'),
+      name: 'codex_claude_review',
+      arguments: { objective: 'Implement feature X' },
+      agent: parent,
+    })
+    if (result.isError) throw new Error(`expected fixed workflow success: ${JSON.stringify(result.content)}`)
+    expect(result.value).toMatchObject({ workflow: 'codex-develop-claude-review', status: 'approved' })
+  })
+
+  it('falls back to blocked when the reviewer omits an explicit VERDICT marker', async () => {
+    const { ctx, parent } = await setup({ reviewToolName: 'codex_claude_review' })
+    const register = (provider: 'codex' | 'claude-code', answer: string) => {
+      ctx.subagents.registerProvider({
+        name: provider,
+        capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+        inheritsParentContext: false,
+        start: async () => ({
+          id: SessionId(`${provider}-run`),
+          localAgent: undefined,
+          result: Promise.resolve({ output: [{ type: 'text', text: answer }], stopReason: 'completed' }),
+          dispose: async () => undefined,
+        }),
+      })
+    }
+    register('codex', 'implemented and tested')
+    register('claude-code', 'Everything looks fine, no explicit verdict.')
+    const result = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('review-blocked'),
+      name: 'codex_claude_review',
+      arguments: { objective: 'Implement feature X' },
+      agent: parent,
+    })
+    if (result.isError) throw new Error(`expected fixed workflow success: ${JSON.stringify(result.content)}`)
+    expect(result.value).toMatchObject({ workflow: 'codex-develop-claude-review', status: 'blocked' })
+  })
+
+  it('renders "no diagnostic" when the review stage fails without a diagnostic', async () => {
+    const { ctx, parent } = await setup({ reviewToolName: 'codex_claude_review' })
+    ctx.subagents.registerProvider({
+      name: 'codex',
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+      inheritsParentContext: false,
+      start: async () => ({
+        id: SessionId('codex-run'),
+        localAgent: undefined,
+        result: Promise.resolve({ output: [{ type: 'text', text: 'done' }], stopReason: 'completed' }),
+        dispose: async () => undefined,
+      }),
+    })
+    ctx.subagents.registerProvider({
+      name: 'claude-code',
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+      inheritsParentContext: false,
+      start: async () => ({
+        id: SessionId('claude-code-run'),
+        localAgent: undefined,
+        result: Promise.resolve({ output: [], stopReason: 'error' }),
+        dispose: async () => undefined,
+      }),
+    })
+    const result = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('review-no-diagnostic'),
+      name: 'codex_claude_review',
+      arguments: { objective: 'Implement feature X' },
+      agent: parent,
+    })
+    expect(result.isError).toBe(true)
+    expect((result.content[0] as { text: string }).text).toContain('Claude Code review stage failed')
+    expect((result.content[0] as { text: string }).text).toContain('no diagnostic')
+  })
+
+  it('wraps a non-Error rejection from the Codex implementation stage', async () => {
+    const { ctx, parent } = await setup({ reviewToolName: 'codex_claude_review' })
+    let claudeStarted = false
+    ctx.subagents.registerProvider({
+      name: 'codex',
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+      inheritsParentContext: false,
+      start: async () => { throw 'boom' },
+    })
+    ctx.subagents.registerProvider({
+      name: 'claude-code',
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+      inheritsParentContext: false,
+      start: async () => { claudeStarted = true; throw new Error('must not start') },
+    })
+    const result = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('review-codex-non-error'),
+      name: 'codex_claude_review',
+      arguments: { objective: 'Implement feature X' },
+      agent: parent,
+    })
+    expect(result.isError).toBe(true)
+    expect((result.content[0] as { text: string }).text).toContain('Codex implementation stage failed: boom')
+    expect(claudeStarted).toBe(false)
+  })
+
+  it('wraps a non-Error rejection from the Claude Code review stage', async () => {
+    const { ctx, parent } = await setup({ reviewToolName: 'codex_claude_review' })
+    ctx.subagents.registerProvider({
+      name: 'codex',
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+      inheritsParentContext: false,
+      start: async () => ({
+        id: SessionId('codex-run'),
+        localAgent: undefined,
+        result: Promise.resolve({ output: [{ type: 'text', text: 'done' }], stopReason: 'completed' }),
+        dispose: async () => undefined,
+      }),
+    })
+    ctx.subagents.registerProvider({
+      name: 'claude-code',
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+      inheritsParentContext: false,
+      start: async () => { throw 'network down' },
+    })
+    const result = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('review-claude-non-error'),
+      name: 'codex_claude_review',
+      arguments: { objective: 'Implement feature X' },
+      agent: parent,
+    })
+    expect(result.isError).toBe(true)
+    expect((result.content[0] as { text: string }).text).toContain('Claude Code review stage failed: network down')
+  })
+
   it('has the namespace-plugin export shape (no stray default)', () => {
     expect('default' in toolWorkflow).toBe(false)
     expect(toolWorkflow.name).toBe('tool-workflow')

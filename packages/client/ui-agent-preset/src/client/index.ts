@@ -20,7 +20,6 @@ import type {} from '@deepseek-ai/dsh-api-remotes/client'
 // Type-only: pulls the settings shell's SlotMap merge (the 'settings.section' entry).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
-import { desktopBridge } from '@deepseek-ai/dsh-client-connection/client'
 import { AgentPresetLabel } from './AgentPresetLabel.tsx'
 import type { AgentPresetLabelInjected } from './AgentPresetLabel.tsx'
 import { AgentPresetRow } from './AgentPresetRow.tsx'
@@ -101,7 +100,8 @@ export function apply(ctx: ClientContext): void {
   // The new-session chip and the header label: one controller, because the
   // staged choice belongs to the flow rather than to any one session.
   ctx.inject(['slots', 'conversation', 'sessions', 'workspaces'], (scope: ClientContext) => {
-    const api = (scope.get('connection') as ConnectionHandle).api
+    const connection = scope.get('connection') as ConnectionHandle
+    const { api } = connection
     const seat = new AgentPresetSeatController(api, (): SeatSessionSummary | undefined => {
       const state = scope.sessions.list.getSnapshot()
       const summary = state.current === undefined ? undefined : state.byId[state.current]
@@ -148,11 +148,12 @@ export function apply(ctx: ClientContext): void {
           return
         }
         policySession = session.id
-        const resolution = await desktopBridge()?.resolveProjectPolicy?.(session.cwd)
+        const selectionVersion = seat.selectionVersion()
+        const resolution = await connection.resolveProjectPolicy(session.cwd)
         const latest = scope.sessions.list.getSnapshot()
         const current = latest.current === undefined ? undefined : latest.byId[latest.current]
         if (current?.id !== session.id || !current.blank) return
-        if (resolution !== undefined) seat.stageDefault(resolution.executionMode)
+        if (resolution !== undefined) seat.stageDefault(resolution.executionMode, selectionVersion)
         await seat.apply()
       }
       const stop = scope.sessions.list.subscribe(() => { void applyProjectPolicy() })
