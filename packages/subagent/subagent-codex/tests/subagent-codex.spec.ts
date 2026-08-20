@@ -23,6 +23,7 @@ import {
   CODEX_PERMISSION_MODES,
   DEFAULT_CODEX_PERMISSION_MODE,
   codexAppServerArgv,
+  codexStartupFailure,
   DEFAULT_DISPOSE_GRACE_MS,
   disposeCodexChild,
   startCodexRun,
@@ -66,6 +67,14 @@ vi.mock('node:fs', async (importOriginal) => {
 type JsonObject = Record<string, unknown>
 
 const CODEX_VERSION = '0.147.0'
+
+describe('Codex safe startup diagnostics', () => {
+  it('categorizes actionable failures without exposing raw details', () => {
+    const error = codexStartupFailure(new Error('ELECTRON_RUN_AS_NODE SECRET_TOKEN'))
+    expect(error.message).toContain('category: node-wrapper')
+    expect(error.message).not.toContain('SECRET_TOKEN')
+  })
+})
 const CODEX_PLATFORM_PACKAGES = [
   '@openai/codex-darwin-arm64',
   '@openai/codex-darwin-x64',

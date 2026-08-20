@@ -50,6 +50,10 @@ The desktop main process records startup, Host lifecycle, renderer-load errors, 
 - Choose **Help → Export Diagnostics** to create a text report containing application, Electron, Chromium, and Node versions, platform facts, and at most the last 256 KiB of the log.
 - The report asks you to review it before sharing. Nothing is uploaded, and a report exists only after you choose its destination.
 
+Choose **Help → Proxy Settings** to switch between automatic macOS system proxy discovery, a manual proxy, and direct connections. Manual mode reads an `http://`, `https://`, or `socks5://` address from the clipboard and applies it immediately. Automatic mode checks for system proxy changes every five seconds. Every mode keeps `localhost`, `127.0.0.1`, `::1`, and `.local` direct, so Ollama never uses an external proxy. The same dialog can test reachability for OpenAI, Anthropic, DeepSeek, and Ollama without sending prompts or credentials.
+
+**Copy Diagnostics** in the proxy dialog writes the report directly to the clipboard. File exports and clipboard copies share the same redaction for API keys, bearer tokens, passwords, OAuth authorization parameters, login state values, and email addresses. Known authentication, proxy, timeout, Node-wrapper, and packaged-dependency failures are translated into actionable messages; unknown failures retain only a redacted, bounded technical summary.
+
 ## Build for macOS
 
 ```sh

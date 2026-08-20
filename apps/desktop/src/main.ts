@@ -9,7 +9,9 @@ import {
 } from 'electron'
 import { injectBootManifest } from '@deepseek-ai/dsh-client-modules'
 import {
+  createDesktopDiagnostics,
   desktopLogPath,
+  explainDesktopError,
   exportDesktopDiagnostics,
   initializeDesktopDiagnostics,
   recordDesktopDiagnostic,
@@ -29,9 +31,17 @@ import {
   probeOllama,
   RECOMMENDED_OLLAMA_MODEL,
 } from './onboarding.ts'
-import { applySystemProxy } from './system-proxy.ts'
 import { formatSubagentStatus, inspectSubagents } from './subagent-status.ts'
 import { ensureDesktopPreset } from './desktop-preset.ts'
+import {
+  applyProxySettings,
+  formatProxySnapshot,
+  readProxySettings,
+  writeProxySettings,
+  type ProxySettings,
+  type ProxySnapshot,
+} from './proxy-settings.ts'
+import { formatConnectivityResults, testProviderConnectivity } from './connectivity.ts'
 
 const APP_NAME = 'DeepSeek Harness'
 const SMOKE_TEST = process.argv.includes('--smoke-test')
@@ -49,6 +59,9 @@ let mainWindow: BrowserWindow | undefined
 let host: DesktopHost | undefined
 let stopping = false
 let stopped = false
+let proxyHome = ''
+let proxySnapshot: ProxySnapshot = applyProxySettings({ mode: 'direct' }, {})
+let proxyRefresh: NodeJS.Timeout | undefined
 const activeRequests = new Map<string, AbortController>()
 
 function installApplicationMenu(): void {
@@ -65,6 +78,10 @@ function installApplicationMenu(): void {
         {
           label: 'Codex & Claude Status / 子代理状态',
           click: () => { void showSubagentStatus() },
+        },
+        {
+          label: 'Proxy Settings / 代理设置',
+          click: () => { void showProxySettings() },
         },
         { type: 'separator' },
         {
@@ -92,6 +109,76 @@ async function showSubagentStatus(): Promise<void> {
   await (mainWindow === undefined
     ? dialog.showMessageBox(options)
     : dialog.showMessageBox(mainWindow, options))
+}
+
+async function showProxySettings(): Promise<void> {
+  const options: MessageBoxOptions = {
+    type: 'info',
+    title: 'Proxy Settings / 代理设置',
+    message: '桌面端代理管理',
+    detail: `${formatProxySnapshot(proxySnapshot)}\n\n手动模式会读取剪贴板中的代理地址。`,
+    buttons: ['自动系统代理', '手动（读取剪贴板）', '不使用代理', '测试连接', '复制诊断', '关闭'],
+    defaultId: 0,
+    cancelId: 5,
+    noLink: true,
+  }
+  const result = mainWindow === undefined
+    ? await dialog.showMessageBox(options)
+    : await dialog.showMessageBox(mainWindow, options)
+  if (result.response === 5) return
+  if (result.response === 3) {
+    await showConnectivityTest()
+    return
+  }
+  if (result.response === 4) {
+    clipboard.writeText(await createDesktopDiagnostics(diagnosticMetadata()))
+    await dialog.showMessageBox({ type: 'info', title: APP_NAME, message: '诊断信息已复制并自动脱敏。' })
+    return
+  }
+  const settings: ProxySettings = result.response === 0
+    ? { mode: 'system' }
+    : result.response === 1
+      ? { mode: 'manual', url: clipboard.readText() }
+      : { mode: 'direct' }
+  try {
+    await updateProxySettings(settings)
+    await showProxySettings()
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    recordDesktopDiagnostic('warn', 'proxy settings rejected', message)
+    await dialog.showMessageBox({ type: 'error', title: '代理设置无效', message })
+  }
+}
+
+async function updateProxySettings(settings: ProxySettings): Promise<void> {
+  await writeProxySettings(proxyHome, settings)
+  proxySnapshot = applyProxySettings(settings)
+  recordDesktopDiagnostic('info', `proxy settings updated\n${formatProxySnapshot(proxySnapshot)}`)
+}
+
+async function showConnectivityTest(): Promise<void> {
+  const results = await testProviderConnectivity()
+  const detail = formatConnectivityResults(results)
+  recordDesktopDiagnostic(results.every(result => result.ok) ? 'info' : 'warn', 'provider connectivity test', detail)
+  await dialog.showMessageBox({
+    type: results.every(result => result.ok) ? 'info' : 'warning',
+    title: 'Connectivity Test / 连通性测试',
+    message: '连接测试完成',
+    detail,
+    buttons: ['好'],
+  })
+}
+
+function diagnosticMetadata(): Record<string, string> {
+  return {
+    version: app.getVersion(),
+    electron: process.versions.electron,
+    chrome: process.versions.chrome,
+    node: process.versions.node,
+    platform: `${process.platform}-${process.arch}`,
+    packaged: String(app.isPackaged),
+    proxy: formatProxySnapshot(proxySnapshot).replace(/\n/gu, '; '),
+  }
 }
 
 function createWindow(reveal = true): BrowserWindow {
@@ -367,14 +454,7 @@ async function saveDiagnostics(): Promise<void> {
     : await dialog.showSaveDialog(mainWindow, options)
   if (result.canceled) return
   try {
-    await exportDesktopDiagnostics(result.filePath, {
-      version: app.getVersion(),
-      electron: process.versions.electron,
-      chrome: process.versions.chrome,
-      node: process.versions.node,
-      platform: `${process.platform}-${process.arch}`,
-      packaged: String(app.isPackaged),
-    })
+    await exportDesktopDiagnostics(result.filePath, diagnosticMetadata())
     recordDesktopDiagnostic('info', `diagnostics exported to ${result.filePath}`)
   } catch (error) {
     recordDesktopDiagnostic('error', 'failed to export diagnostics', error)
@@ -403,6 +483,7 @@ if (!ownsInstance) {
     event.preventDefault()
     if (stopping) return
     stopping = true
+    if (proxyRefresh !== undefined) clearInterval(proxyRefresh)
     void stopHost().finally(() => {
       stopped = true
       app.quit()
@@ -427,11 +508,18 @@ if (!ownsInstance) {
     process.on('unhandledRejection', (error) => {
       recordDesktopDiagnostic('error', 'unhandled rejection', error)
     })
-    const proxy = applySystemProxy()
-    if (Object.keys(proxy).length > 0) {
-      recordDesktopDiagnostic('info', 'macOS system proxy imported for CLI subprocesses')
-    }
     const dshHome = process.env.DSH_HOME ?? join(app.getPath('home'), '.dsh')
+    proxyHome = dshHome
+    proxySnapshot = applyProxySettings(await readProxySettings(dshHome))
+    recordDesktopDiagnostic('info', `desktop proxy initialized\n${formatProxySnapshot(proxySnapshot)}`)
+    proxyRefresh = setInterval(() => {
+      if (proxySnapshot.settings.mode !== 'system') return
+      const next = applyProxySettings(proxySnapshot.settings)
+      if (JSON.stringify(next.environment) === JSON.stringify(proxySnapshot.environment)) return
+      proxySnapshot = next
+      recordDesktopDiagnostic('info', `macOS system proxy changed\n${formatProxySnapshot(proxySnapshot)}`)
+    }, 5_000)
+    proxyRefresh.unref()
     if (await ensureDesktopPreset(join(app.getAppPath(), 'config'), dshHome)) {
       recordDesktopDiagnostic('info', 'desktop Codex + Claude Code preset installed')
     }
@@ -459,7 +547,8 @@ if (!ownsInstance) {
       })
     }
   }).catch(async (error: unknown) => {
-    const detail = error instanceof Error ? error.stack ?? error.message : String(error)
+    const explained = explainDesktopError('Network', error)
+    const detail = `${explained.detail}\n\n${explained.action}`
     recordDesktopDiagnostic('error', 'startup failed', error)
     if (SMOKE_TEST) {
       stopped = true
@@ -469,7 +558,7 @@ if (!ownsInstance) {
     await dialog.showMessageBox({
       type: 'error',
       title: `${APP_NAME} failed to start`,
-      message: 'The local DeepSeek Harness Host could not start.',
+      message: explained.title,
       detail,
     })
     stopped = true

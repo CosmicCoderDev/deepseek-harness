@@ -100,7 +100,7 @@ dsh --profile <name>
 
 运行时依赖精确锁定为 `@anthropic-ai/claude-agent-sdk@0.3.220`，其八个平台包都携带 Claude Code 2.1.220。普通安装会按当前操作系统、CPU 及 Linux libc 选择一个载荷。对于当前 darwin-arm64 载荷，`npm pack --dry-run --json` 报告压缩包为 74,858,812 字节、解包后为 256,908,856 字节；其他平台可能不同，这些数值只用于披露而不是安装阈值。无密钥真实产品测试会让 SDK 选择 CLI，通过回环 Messages fixture 运行它，并断言共享子进程 argv 的首项就是该平台包的原生可执行文件。Loader 组合证明安装该 Bundle 只会注册休眠的 Claude Code provider，不会启动产品进程。
 
-如果安装时省略 optional dependencies、当前平台不受支持，或所选载荷缺失，提供方注册仍保持休眠，但第一次委派会在 SDK 启动边界失败。调用方只会收到安全的 `query-start` / `unknown` 失败事实；原生载荷错误只保留在内部 cause 链和提供方 Host 日志中。提供方既不会探测宿主 CLI，也不会用它重试。
+如果安装时省略 optional dependencies、当前平台不受支持，或所选载荷缺失，提供方注册仍保持休眠，但第一次委派会在 SDK 启动边界失败。调用方会收到 `query-start`；已识别情况使用固定安全的 `dependency-missing`、`authentication`、`timeout` 或 `network` 类别，其余情况使用 `unknown`。原生载荷错误只保留在内部 cause 链和提供方 Host 日志中。提供方既不会探测宿主 CLI，也不会用它重试。
 
 Loader 组合证明 Bundle 默认实例、两个额外命名 Claude 实例与现有 Codex 包可以共存，而且不会启动任一产品。
 
@@ -141,7 +141,7 @@ Claude Code 子级会在一个全新的 SDK query 中接收独立文本任务。
 - **每次运行均新建一个 query 和一个进程**：不支持续接、恢复、池化、进度流或产品会话持久化。
 - **静态选择实例**：Profile 配置项固定提供方名称与工具绑定；调用无法动态选择提供方，而且每个公开工具都需要唯一的 `toolName`。
 - **宿主设置有意保持权威**：项目和用户设置可以改变模型、工具与行为；本提供方不提供经过筛选或与宿主环境隔离的生产模式。
-- **身份验证与账户状态仍由原生机制管理**：Bundle 会提供 CLI，但不会创建账户、登录或改写 Claude 设置；配置与身份验证失败会公开其生命周期阶段与安全的 `unknown` 回退，而不会增加单独的公开分类。
+- **身份验证与账户状态仍由原生机制管理**：Bundle 会提供 CLI，但不会创建账户、登录或改写 Claude 设置；已识别的启动认证失败使用固定的 `authentication` 类别，未识别的细节仍使用安全的 `unknown` 回退。
 - **委派时必须存在 SDK 平台载荷**：省略 optional dependencies 的安装、不受支持的平台以及缺失或损坏的载荷都会在第一次 query 时失败；不会回退到宿主 CLI。
 - **没有人工交互路径**：`AskUserQuestion` 被禁用，权限提示会被拒绝，MCP elicitation 会被拒绝，阻塞对话会快速失败而不会挂起。
 - **assistant 载荷仅包含最终文本**：失败运行可以额外公开独立的安全诊断；推理、中间消息、工具通信、用量信息、stderr 和工作区差异仍只保留在产品内部，通用 Job id、通知与状态来自共享作业运行时。

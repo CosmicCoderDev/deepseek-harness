@@ -44,6 +44,7 @@ import {
   CLAUDE_CODE_PERMISSION_MODES,
   DEFAULT_CLAUDE_CODE_PERMISSION_MODE,
   claudeQueryOptions,
+  claudeCodeStartupFailure,
   consumeClaudeQuery,
   disposeClaudeCodeChild,
   startClaudeCodeRun,
@@ -60,6 +61,14 @@ type QueryFactory = (params: {
 const queryMock = vi.hoisted(() => vi.fn<QueryFactory>())
 
 const CLAUDE_AGENT_SDK_VERSION = '0.3.220'
+
+describe('Claude Code safe startup diagnostics', () => {
+  it('categorizes actionable failures without exposing raw details', () => {
+    const error = claudeCodeStartupFailure(new Error('authentication failed SECRET_TOKEN'))
+    expect(error.message).toContain('category: authentication')
+    expect(error.message).not.toContain('SECRET_TOKEN')
+  })
+})
 const CLAUDE_CODE_VERSION = '2.1.220'
 const CLAUDE_PLATFORM_PACKAGES = [
   '@anthropic-ai/claude-agent-sdk-darwin-arm64',

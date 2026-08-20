@@ -4,6 +4,7 @@ import { execFile } from 'node:child_process'
 import { access } from 'node:fs/promises'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
+import { explainDesktopError } from './diagnostics.ts'
 
 const execute = promisify(execFile)
 
@@ -49,17 +50,22 @@ export async function inspectSubagents(appPath: string): Promise<SubagentStatus>
     ? await execute(process.execPath, [codexWrapper, 'login', 'status'], {
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, timeout: 10_000,
     }).then(result => parseCodexAuth(`${result.stdout}${result.stderr}`), error => ({
-      installed: true, authenticated: false, detail: error instanceof Error ? error.message : String(error),
+      installed: true, authenticated: false, detail: friendlyDetail('Codex', error),
     }))
     : { installed: false, authenticated: false, detail: '未内置' }
   const claude: ProductStatus = await exists(claudeBinary)
     ? await execute(claudeBinary, ['auth', 'status'], { env: process.env, timeout: 10_000 })
       .then(result => parseClaudeAuth(result.stdout), error => ({
-        installed: true, authenticated: false, detail: error instanceof Error ? error.message : String(error),
+        installed: true, authenticated: false, detail: friendlyDetail('Claude Code', error),
       }))
     : { installed: false, authenticated: false, detail: '未内置' }
   const proxy = process.env.HTTPS_PROXY ?? process.env.https_proxy ?? '未启用'
   return { codex, claude, proxy }
+}
+
+function friendlyDetail(product: 'Codex' | 'Claude Code', error: unknown): string {
+  const explained = explainDesktopError(product, error)
+  return `${explained.detail} ${explained.action}`
 }
 
 export function formatSubagentStatus(status: SubagentStatus): string {

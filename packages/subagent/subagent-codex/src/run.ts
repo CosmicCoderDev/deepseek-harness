@@ -121,8 +121,18 @@ class CodexRunFailure extends Error {
 export function codexStartupFailure(cause: unknown): Error {
   return new CodexRunFailure({
     stage: 'initialize',
-    category: 'unknown',
+    category: safeStartupCategory(cause),
   }, cause)
+}
+
+function safeStartupCategory(cause: unknown): string {
+  const message = cause instanceof Error ? cause.message.toLowerCase() : ''
+  if (message.includes('electron_run_as_node') || message.includes('node mode')) return 'node-wrapper'
+  if (message.includes('module_not_found') || message.includes('cannot find package') || message.includes('enoent')) return 'dependency-missing'
+  if (message.includes('not logged in') || message.includes('unauthorized') || message.includes('authentication')) return 'authentication'
+  if (message.includes('timeout') || message.includes('timed out')) return 'timeout'
+  if (message.includes('econnrefused') || message.includes('network') || message.includes('proxy')) return 'network'
+  return 'unknown'
 }
 
 /**

@@ -71,6 +71,10 @@ type ClaudeCodeFailureCategory =
   | 'invalid-success'
   | 'missing-result'
   | 'process-exit'
+  | 'authentication'
+  | 'dependency-missing'
+  | 'network'
+  | 'timeout'
   | 'unknown'
 
 interface ClaudeCodeFailureFacts {
@@ -131,8 +135,17 @@ function sdkFailureCategory(
 export function claudeCodeStartupFailure(cause: unknown): Error {
   return new ClaudeCodeFailure({
     stage: 'query-start',
-    category: 'unknown',
+    category: safeStartupCategory(cause),
   }, cause)
+}
+
+function safeStartupCategory(cause: unknown): ClaudeCodeFailureCategory {
+  const message = cause instanceof Error ? cause.message.toLowerCase() : ''
+  if (message.includes('module_not_found') || message.includes('cannot find package') || message.includes('enoent')) return 'dependency-missing'
+  if (message.includes('not logged in') || message.includes('unauthorized') || message.includes('authentication') || message.includes('auth login')) return 'authentication'
+  if (message.includes('timeout') || message.includes('timed out')) return 'timeout'
+  if (message.includes('econnrefused') || message.includes('network') || message.includes('proxy')) return 'network'
+  return 'unknown'
 }
 
 function unattendedDiagnostic(
