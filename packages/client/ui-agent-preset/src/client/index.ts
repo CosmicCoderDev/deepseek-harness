@@ -20,6 +20,7 @@ import type {} from '@deepseek-ai/dsh-api-remotes/client'
 // Type-only: pulls the settings shell's SlotMap merge (the 'settings.section' entry).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import { desktopBridge } from '@deepseek-ai/dsh-client-connection/client'
 import { AgentPresetLabel } from './AgentPresetLabel.tsx'
 import type { AgentPresetLabelInjected } from './AgentPresetLabel.tsx'
 import { AgentPresetRow } from './AgentPresetRow.tsx'
@@ -109,6 +110,7 @@ export function apply(ctx: ClientContext): void {
         : {
           id: summary.id,
           blank: summary.blank,
+          ...summary.cwd === undefined ? {} : { cwd: summary.cwd },
           ...summary.agentPreset === undefined ? {} : { agentPreset: summary.agentPreset },
         }
     }, (sessionId, agentPreset) => {
@@ -131,7 +133,30 @@ export function apply(ctx: ClientContext): void {
       // Connecting a workspace either creates a blank session or reuses one,
       // and either way the chip's pick predates it — so the stage is applied
       // when the session arrives, not when it was made.
-      const stop = scope.sessions.list.subscribe(() => { void seat.apply() })
+      let policySession: string | undefined
+      const applyProjectPolicy = async (): Promise<void> => {
+        const session = (() => {
+          const state = scope.sessions.list.getSnapshot()
+          return state.current === undefined ? undefined : state.byId[state.current]
+        })()
+        if (session === undefined || !session.blank || session.cwd === undefined) {
+          await seat.apply()
+          return
+        }
+        if (policySession === session.id) {
+          await seat.apply()
+          return
+        }
+        policySession = session.id
+        const resolution = await desktopBridge()?.resolveProjectPolicy?.(session.cwd)
+        const latest = scope.sessions.list.getSnapshot()
+        const current = latest.current === undefined ? undefined : latest.byId[latest.current]
+        if (current?.id !== session.id || !current.blank) return
+        if (resolution !== undefined) seat.stageDefault(resolution.executionMode)
+        await seat.apply()
+      }
+      const stop = scope.sessions.list.subscribe(() => { void applyProjectPolicy() })
+      void applyProjectPolicy()
       // The chip opens on the deployment default, so a default changed from
       // the settings surface moves it too — otherwise the screen that starts
       // the next session keeps offering the previous default until a reload,

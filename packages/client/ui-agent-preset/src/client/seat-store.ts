@@ -46,6 +46,8 @@ export interface SeatSessionSummary {
   blank: boolean
   /** The preset the session already runs, when the summary reports one. */
   agentPreset?: string
+  /** Project root used to resolve an optional desktop project policy. */
+  cwd?: string
 }
 
 /** Stages the next session's preset and applies it when one appears. */
@@ -133,6 +135,12 @@ export class AgentPresetSeatController {
   stage(id: string, introduce = false): void {
     this.staged = id
     this.set({ current: id, error: null, introduce })
+  }
+
+  /** Stage a policy default only when the user has not already made a task-level choice. */
+  stageDefault(id: string): void {
+    if (this.staged !== undefined) return
+    this.stage(id)
   }
 
   /** Acknowledge the introduction cue once the chip has played it. */

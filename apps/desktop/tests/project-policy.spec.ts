@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   defaultProjectPolicy,
+  projectExecutionMode,
   readProjectPolicies,
   validateProjectPolicy,
   writeProjectPolicies,
@@ -31,6 +32,16 @@ describe('desktop project policies', () => {
 
   it('validates a least-authority project policy', () => {
     expect(validateProjectPolicy(policy('/workspace/project'))).toEqual(policy('/workspace/project'))
+  })
+
+  it('forces offline projects local and resolves cross-review projects to the formal workflow', () => {
+    expect(projectExecutionMode({ ...policy('/workspace/project'), defaultExecutionMode: 'codex-direct' })).toBe('local-only')
+    expect(projectExecutionMode({
+      ...policy('/workspace/project'),
+      network: 'allow',
+      defaultExecutionMode: 'codex-direct',
+      crossReview: true,
+    })).toBe('codex-claude-review')
   })
 
   it('rejects credentials and write roots outside the read boundary', () => {

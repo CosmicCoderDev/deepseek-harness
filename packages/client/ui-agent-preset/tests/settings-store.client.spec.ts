@@ -331,6 +331,14 @@ describe('the new-session chip controller', () => {
     expect(controller.store.getSnapshot().current).toBe('minimal')
   })
 
+  it('keeps an explicit task choice above a project policy default', async () => {
+    const controller = chip(ROSTER, undefined)
+    await controller.load()
+    controller.stage('minimal')
+    controller.stageDefault('standard')
+    expect(controller.store.getSnapshot().current).toBe('minimal')
+  })
+
   it('applies the stage to the blank session the flow lands on', async () => {
     const writes: Recorded[] = []
     const current = { id: 's1', blank: true, agentPreset: 'standard' }

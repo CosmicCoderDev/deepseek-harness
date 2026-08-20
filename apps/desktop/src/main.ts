@@ -22,10 +22,11 @@ import {
   IPC_SETTINGS_COPY_DIAGNOSTICS, IPC_SETTINGS_GET, IPC_SETTINGS_LOGIN, IPC_SETTINGS_OPEN_LOGS,
   IPC_SETTINGS_REFRESH_STATUS, IPC_SETTINGS_RESTART_HOST, IPC_SETTINGS_SAVE,
   IPC_SETTINGS_STATUS_CHANGED, IPC_SETTINGS_TEST,
-  IPC_PROJECT_POLICY_DELETE, IPC_PROJECT_POLICY_GET, IPC_PROJECT_POLICY_SAVE, IPC_PROJECT_POLICY_SELECT,
+  IPC_PROJECT_POLICY_DELETE, IPC_PROJECT_POLICY_GET, IPC_PROJECT_POLICY_RESOLVE, IPC_PROJECT_POLICY_SAVE, IPC_PROJECT_POLICY_SELECT,
   type DesktopFetchResponse, type DesktopStreamEvent,
   type DesktopSettingsView,
   type DesktopProjectPolicyView,
+  type DesktopProjectPolicyResolution,
 } from './ipc-contract.ts'
 import {
   isSafeExternalUrl,
@@ -57,6 +58,7 @@ import {
 } from './desktop-settings.ts'
 import {
   defaultProjectPolicy,
+  projectExecutionMode,
   readProjectPolicies,
   validateProjectPolicy,
   writeProjectPolicies,
@@ -404,6 +406,13 @@ function installIpc(): void {
     projectPolicies = next
     recordDesktopDiagnostic('info', `desktop project policy disabled: ${draft.projectRoot}`)
     return projectPolicyView(draft.projectRoot)
+  })
+  ipcMain.handle(IPC_PROJECT_POLICY_RESOLVE, (event, projectRoot: unknown): DesktopProjectPolicyResolution | undefined => {
+    assertMainSender(event.sender.id)
+    if (typeof projectRoot !== 'string') throw new Error('项目目录无效')
+    const root = defaultProjectPolicy(projectRoot).projectRoot
+    const policy = projectPolicies.get(root)
+    return policy === undefined ? undefined : { executionMode: projectExecutionMode(policy) }
   })
 }
 

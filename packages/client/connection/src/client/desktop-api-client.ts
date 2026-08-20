@@ -32,6 +32,8 @@ export interface DesktopBridge {
   request(request: DesktopFetchRequest): Promise<DesktopFetchResponse>
   subscribe(id: string, listener: (event: DesktopStreamEvent) => void): () => void
   abort(id: string): void
+  /** Resolve a configured desktop project policy without exposing the settings surface. */
+  resolveProjectPolicy?(projectRoot: string): Promise<{ readonly executionMode: string } | undefined>
 }
 
 /**

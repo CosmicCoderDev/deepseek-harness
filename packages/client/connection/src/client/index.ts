@@ -36,6 +36,7 @@ export {
   AbstractApiClient,
   transportError,
 } from './api.ts'
+export { desktopBridge, type DesktopBridge } from './desktop-api-client.ts'
 
 // Connection loop types are public through ConnectionHandle.start; the
 // controller remains package-internal.

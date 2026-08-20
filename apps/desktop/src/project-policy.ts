@@ -31,6 +31,13 @@ export interface ProjectPolicyReadResult {
   readonly recoveredFile?: string
 }
 
+/** Resolve the preset that may be applied at the next blank-session boundary. */
+export function projectExecutionMode(policy: DesktopProjectPolicy): DesktopPreset {
+  if (policy.network === 'deny') return 'local-only'
+  if (policy.crossReview) return 'codex-claude-review'
+  return policy.defaultExecutionMode
+}
+
 const POLICY_FILE = 'desktop-project-policies.json'
 
 /** Create the least-authority editable draft for a project without enabling it. */

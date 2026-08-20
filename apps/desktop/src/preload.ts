@@ -19,6 +19,8 @@ import {
   IPC_PROJECT_POLICY_GET,
   IPC_PROJECT_POLICY_SAVE,
   IPC_PROJECT_POLICY_SELECT,
+  IPC_PROJECT_POLICY_RESOLVE,
+  type DesktopProjectPolicyResolution,
   type DesktopProjectPolicyValue,
   type DesktopProjectPolicyView,
   type DesktopSettingsView,
@@ -61,6 +63,8 @@ contextBridge.exposeInMainWorld('__DSH_DESKTOP__', {
     return () => { listeners.delete(id) }
   },
   abort(id: string): void { ipcRenderer.send(IPC_ABORT, id) },
+  resolveProjectPolicy: (projectRoot: string): Promise<DesktopProjectPolicyResolution | undefined> =>
+    ipcRenderer.invoke(IPC_PROJECT_POLICY_RESOLVE, projectRoot) as Promise<DesktopProjectPolicyResolution | undefined>,
 })
 contextBridge.exposeInMainWorld('__DSH_SETTINGS__', {
   get: (): Promise<DesktopSettingsView> => ipcRenderer.invoke(IPC_SETTINGS_GET) as Promise<DesktopSettingsView>,

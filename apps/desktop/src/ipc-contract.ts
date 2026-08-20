@@ -37,6 +37,11 @@ export const IPC_PROJECT_POLICY_SELECT = 'dsh:project-policy:select'
 export const IPC_PROJECT_POLICY_GET = 'dsh:project-policy:get'
 export const IPC_PROJECT_POLICY_SAVE = 'dsh:project-policy:save'
 export const IPC_PROJECT_POLICY_DELETE = 'dsh:project-policy:delete'
+export const IPC_PROJECT_POLICY_RESOLVE = 'dsh:project-policy:resolve'
+
+export interface DesktopProjectPolicyResolution {
+  readonly executionMode: DesktopProjectPolicyValue['defaultExecutionMode']
+}
 
 export type DesktopSubagentProduct = 'codex' | 'claude'
 
