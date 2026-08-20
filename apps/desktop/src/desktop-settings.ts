@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { readProxySettings, validateProxyUrl, type ProxySettings } from './proxy-settings.ts'
+import { desktopSubagentProviders } from './subagent-provider-registry.ts'
 
 export type SubagentPermission = 'read-only' | 'project-development' | 'full-access'
 
@@ -69,13 +70,7 @@ export async function writeDesktopSettings(dshHome: string, value: DesktopSettin
 
 /** Project a user permission tier into fixed provider-native modes. */
 export function applySubagentPermission(permission: SubagentPermission, environment: NodeJS.ProcessEnv = process.env): void {
-  const mapping = permission === 'read-only'
-    ? ['never', 'plan']
-    : permission === 'project-development'
-      ? ['approve-for-me', 'acceptEdits']
-      : ['dangerously-bypass-approvals-and-sandbox', 'bypassPermissions']
-  environment.DSH_CODEX_PERMISSION_MODE = mapping[0]
-  environment.DSH_CLAUDE_PERMISSION_MODE = mapping[1]
+  for (const provider of desktopSubagentProviders.list()) provider.applyPermission(permission, environment)
 }
 
 /** Reject settings values received across IPC or read from disk. */

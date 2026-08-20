@@ -1,6 +1,7 @@
 /** Credential-free connectivity checks for desktop provider endpoints. */
 
 import { execFile } from 'node:child_process'
+import { desktopSubagentProviders } from './subagent-provider-registry.ts'
 
 export interface ConnectivityResult {
   readonly service: string
@@ -9,15 +10,14 @@ export interface ConnectivityResult {
 }
 
 const ENDPOINTS = [
-  ['OpenAI', 'https://api.openai.com/v1/models'],
-  ['Anthropic', 'https://api.anthropic.com/v1/models'],
   ['DeepSeek', 'https://api.deepseek.com/v1/models'],
   ['Ollama', 'http://127.0.0.1:11434/api/tags'],
 ] as const
 
 /** Check public service reachability without sending prompts or credentials. */
 export async function testProviderConnectivity(environment: NodeJS.ProcessEnv = process.env): Promise<readonly ConnectivityResult[]> {
-  return await Promise.all(ENDPOINTS.map(async ([service, url]) => await testEndpoint(service, url, environment)))
+  const providers = desktopSubagentProviders.list().map(provider => [provider.displayName, provider.connectivityUrl] as const)
+  return await Promise.all([...providers, ...ENDPOINTS].map(async ([service, url]) => await testEndpoint(service, url, environment)))
 }
 
 /** Format connectivity results for a native status dialog. */

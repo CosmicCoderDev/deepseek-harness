@@ -36,6 +36,14 @@ export const IPC_SETTINGS_STATUS_CHANGED = 'dsh:settings:status-changed'
 
 export type DesktopSubagentProduct = 'codex' | 'claude'
 
+export interface DesktopProviderView {
+  readonly id: DesktopSubagentProduct
+  readonly displayName: string
+  readonly capabilities: readonly string[]
+  readonly supported: boolean
+  readonly status: { readonly installed: boolean; readonly authenticated: boolean; readonly detail: string }
+}
+
 export interface DesktopSettingsView {
   readonly settings: {
     readonly version: 1
@@ -45,6 +53,7 @@ export interface DesktopSettingsView {
   readonly proxySummary: string
   readonly codex: { readonly installed: boolean; readonly authenticated: boolean; readonly detail: string }
   readonly claude: { readonly installed: boolean; readonly authenticated: boolean; readonly detail: string }
+  readonly providers: readonly DesktopProviderView[]
   readonly statusCheckedAt: string
   readonly restartRequired: boolean
   readonly recoveryWarning?: string

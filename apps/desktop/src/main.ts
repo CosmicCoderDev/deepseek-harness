@@ -45,6 +45,7 @@ import {
   type ProxySnapshot,
 } from './proxy-settings.ts'
 import { formatConnectivityResults, testProviderConnectivity } from './connectivity.ts'
+import { desktopSubagentProviders } from './subagent-provider-registry.ts'
 import {
   applySubagentPermission,
   readDesktopSettingsWithRecovery,
@@ -363,6 +364,13 @@ async function desktopSettingsView(): Promise<DesktopSettingsView> {
     proxySummary: formatProxySnapshot(proxySnapshot),
     codex: snapshot.status.codex,
     claude: snapshot.status.claude,
+    providers: desktopSubagentProviders.list().map(provider => ({
+      id: provider.id,
+      displayName: provider.displayName,
+      capabilities: provider.capabilities,
+      supported: provider.supportedPlatforms.includes(process.platform),
+      status: snapshot.status[provider.id],
+    })),
     statusCheckedAt: snapshot.checkedAt,
     restartRequired,
     ...(settingsRecoveryWarning === undefined ? {} : { recoveryWarning: settingsRecoveryWarning }),
@@ -469,10 +477,11 @@ async function verifyPackagedSettingsSurface(): Promise<void> {
     })
   }
   const result = await window.webContents.executeJavaScript(`(async () => {
-    if (document.querySelector('#save') === null || document.querySelector('#loginCodex') === null || document.querySelector('#loginClaude') === null) throw new Error('settings controls missing')
+    if (document.querySelector('#save') === null || document.querySelector('#providers') === null) throw new Error('settings controls missing')
     if (typeof window.__DSH_SETTINGS__.login !== 'function') throw new Error('settings login bridge missing')
     const initial = await window.__DSH_SETTINGS__.get()
     if (!initial.recoveryWarning) throw new Error('corrupt settings recovery warning missing')
+    if (initial.providers.map(provider => provider.id).join(',') !== 'codex,claude') throw new Error('provider registry projection missing')
     let unsafeSaveRejected = false
     try {
       await window.__DSH_SETTINGS__.save({

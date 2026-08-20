@@ -31,7 +31,7 @@
 <main>
   <h1>桌面功能设置</h1>
   <p class="lead">Desktop Features · 子代理、代理、权限与诊断</p>
-  <section><h2>子代理状态</h2><div class="grid"><div class="service"><div id="codex"></div><button id="loginCodex">登录 / 重新登录</button></div><div class="service"><div id="claude"></div><button id="loginClaude">登录 / 重新登录</button></div></div><div class="actions"><button id="refresh">刷新状态</button></div><p class="hint">登录会打开 macOS 终端并自动执行内置 CLI 的官方登录命令；完成网页授权后回到这里刷新状态。</p></section>
+  <section><h2>子代理状态</h2><div class="grid" id="providers"></div><div class="actions"><button id="refresh">刷新状态</button></div><p class="hint">登录会打开 macOS 终端并自动执行内置 CLI 的官方登录命令；完成网页授权后回到这里刷新状态。</p></section>
   <section><h2>代理</h2>
     <label><input type="radio" name="proxy" value="system">自动读取 macOS 系统代理</label>
     <label><input type="radio" name="proxy" value="manual">手动代理</label>
@@ -63,15 +63,17 @@
     $('proxySummary').textContent = view.proxySummary
     syncManual(); $('restart').hidden = !view.restartRequired; $('notice').textContent = view.recoveryWarning || ''
   }
-  function renderStatus() { $('codex').innerHTML = service('Codex', view.codex); $('claude').innerHTML = service('Claude Code', view.claude); $('proxySummary').textContent = view.proxySummary }
+  function renderStatus() {
+    $('providers').innerHTML = view.providers.map(provider => `<div class="service"><div>${service(provider.displayName, provider.status)}</div><div class="hint">能力：${provider.capabilities.map(escapeHtml).join(' · ')}</div><button data-provider="${provider.id}" ${provider.supported ? '' : 'disabled'}>登录 / 重新登录</button></div>`).join('')
+    document.querySelectorAll('[data-provider]').forEach(button => { button.onclick = () => login(button.dataset.provider) })
+    $('proxySummary').textContent = view.proxySummary
+  }
   async function refreshStatus() { const fresh = await api.get(); view = { ...view, ...fresh, settings: view.settings }; renderStatus() }
   function selected(name) { return document.querySelector(`input[name=${name}]:checked`).value }
   function syncManual() { $('proxyUrl').disabled = selected('proxy') !== 'manual' }
   document.querySelectorAll('input[name=proxy]').forEach(input => input.addEventListener('change', syncManual))
   $('refresh').onclick = async () => { view = await api.refreshStatus(); renderStatus() }
   async function login(product) { $('notice').textContent = '正在打开终端登录…'; try { await api.login(product); $('notice').textContent = '终端已打开。登录完成后点击“刷新状态”。' } catch (error) { $('notice').textContent = error.message || String(error) } }
-  $('loginCodex').onclick = () => login('codex')
-  $('loginClaude').onclick = () => login('claude')
   $('save').onclick = async () => {
     const permission = selected('permission'); let confirmed = false
     if (permission === 'full-access') confirmed = confirm('完全访问会绕过 Codex 与 Claude Code 的原生审批和沙箱。确认只在受控项目中启用吗？')

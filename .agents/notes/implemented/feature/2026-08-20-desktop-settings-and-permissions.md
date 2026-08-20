@@ -20,6 +20,8 @@ Provider login actions are a closed IPC enum. The main process derives the packa
 
 Product status inspection is owned by a cached, non-reentrant main-process service: explicit concurrent refreshes coalesce, the last good snapshot remains readable, and completed changes notify the settings renderer. Existing but invalid settings are preserved under a timestamped corrupt filename before safe defaults replace them. A permission change marks the Host for restart; the main process rejects restart while tracked requests are active, otherwise rebuilds the Host in place, and attempts a persisted Read-only Analysis recovery if startup fails.
 
+Bundled cloud products are described by a closed provider registry. Each descriptor owns its stable ID, display name, declared capabilities, platform support, status probe, login command, connectivity target, and permission mapping. Settings cards are projected from that registry; duplicate IDs and undeclared capabilities are rejected, and the renderer can never submit an executable path or command line.
+
 ## Alternatives considered
 
 **Continue adding native message boxes.** This would minimize new UI code, but Electron message boxes cannot provide a coherent editable form and had already forced manual proxy input through the clipboard.

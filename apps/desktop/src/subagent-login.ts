@@ -1,21 +1,15 @@
 /** Fixed, user-visible login launchers for bundled product CLIs on macOS. */
 
 import { execFile } from 'node:child_process'
-import { join } from 'node:path'
 import { promisify } from 'node:util'
+import { desktopSubagentProviders, type DesktopSubagentProviderId } from './subagent-provider-registry.ts'
 
 const execute = promisify(execFile)
 
-export type SubagentProduct = 'codex' | 'claude'
+export type SubagentProduct = DesktopSubagentProviderId
 
 export function subagentLoginCommand(product: SubagentProduct, appPath: string, executablePath: string): string {
-  const modules = join(appPath, 'node_modules')
-  if (product === 'codex') {
-    const wrapper = join(modules, '@openai/codex/bin/codex.js')
-    return `env ELECTRON_RUN_AS_NODE=1 ${shellQuote(executablePath)} ${shellQuote(wrapper)} login`
-  }
-  const binary = join(modules, '@anthropic-ai/claude-agent-sdk-darwin-arm64/claude')
-  return `${shellQuote(binary)} auth login`
+  return desktopSubagentProviders.get(product).loginCommand(appPath, executablePath)
 }
 
 export async function openSubagentLogin(product: SubagentProduct, appPath: string, executablePath: string): Promise<void> {
@@ -25,10 +19,6 @@ export async function openSubagentLogin(product: SubagentProduct, appPath: strin
     '-e', 'tell application "Terminal" to activate',
     '-e', `tell application "Terminal" to do script "${appleScriptString(command)}"`,
   ])
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`
 }
 
 function appleScriptString(value: string): string {

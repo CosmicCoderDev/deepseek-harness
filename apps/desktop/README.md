@@ -40,6 +40,8 @@ Make sure Ollama is running and the model is already available locally. Save the
 
 Before a new session starts, choose a desktop execution mode: Local Model, Automatic, Codex Direct, Claude Code Direct, or the Codex + Claude preview. Local mode does not expose either cloud subagent tool, and a direct mode never silently substitutes another executor after failure. Agent tools are fixed after the first turn, so changing execution mode starts with a new session.
 
+Bundled desktop subagents are managed through a closed provider registry. Settings status/login cards, native permission mapping, and connectivity targets all come from the same provider descriptors; the renderer cannot supply arbitrary module paths or login commands.
+
 On first launch, the desktop application reads Ollama's local `GET /api/tags` list. It does not send a prompt, download a model, or rewrite Harness configuration. When Ollama is detected, the assistant distinguishes between an installed recommended model and a running server that is missing it, then presents the exact values above. Choose **Copy Configuration** to paste them into the Models form. If you dismiss the assistant, reopen it at any time from **Help → Local Model Setup**.
 
 The desktop build is local-model-first and does not advertise the `web_search` tool, which requires `DEEPSEEK_API_KEY`, to the model. A user who configures only Ollama therefore cannot enter a repeated, guaranteed-failure DeepSeek search loop. The official base composition also keeps `web_fetch` disabled for SSRF safety, and the desktop surface does not bypass that boundary. DeepSeek search settings remain available for a future explicit online-search opt-in.
