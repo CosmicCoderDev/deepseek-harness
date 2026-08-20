@@ -7,8 +7,12 @@
  * make a stale or undocumented contract fail loudly instead of shipping.
  */
 
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { collectSlotEntries, oversizedSlotReports, resolveSlotEntries, validateSlotContracts } from './gen-client-catalog.ts'
+import { indexExportedTypes, scanSlotFiles } from './slot-walk.ts'
 import type { SlotDeclaration, SlotRegistration, TypeDeclaration } from './slot-walk.ts'
 
 /** A declaration with every field the catalog needs, overridable per case. */
@@ -210,5 +214,22 @@ describe('the real workspace surface', () => {
     const root = entries.find(entry => entry.key === 'root')
     expect(root?.replaceRisk).toBe('shadows-shipped-ui')
     expect(root?.occupants.join(' ')).toContain('AppFrame')
+  })
+
+  it('ignores concurrent oxlint source probes', () => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-slot-walk-'))
+    const source = join(root, 'packages/client/demo/src')
+    try {
+      mkdirSync(source, { recursive: true })
+      writeFileSync(join(root, 'packages/client/demo/package.json'), '{"name":"demo"}\n')
+      writeFileSync(join(source, 'contract.ts'), 'declare module \'@deepseek-ai/dsh-client-ui-slots\' {}\nexport interface Kept {}\n')
+      writeFileSync(join(source, 'oxlint-contract-probe.ts'), 'declare module \'@deepseek-ai/dsh-client-ui-slots\' {}\nexport interface Probe {}\n')
+
+      expect(scanSlotFiles(root, ['packages/**/*.ts']).map(file => file.rel))
+        .toEqual(['packages/client/demo/src/contract.ts'])
+      expect([...indexExportedTypes(root, ['packages/**/*.ts']).keys()]).toEqual(['Kept'])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })

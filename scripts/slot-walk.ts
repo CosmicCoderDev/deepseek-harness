@@ -20,6 +20,9 @@ const MERGE_HEAD = /declare module ['"]@deepseek-ai\/dsh-client-ui-slots['"]/
 /** Cheap textual prefilter for a registration call site. */
 const REGISTER_HEAD = /\.register\(/
 
+/** Concurrent lint-contract tests create and remove these source-shaped probes. */
+const OXLINT_PROBE = /(?:^|\/)\.?oxlint-contract-[^/]+(?:\/|$)/u
+
 /** One `SlotMap` member: the slot's contract as its owning package declares it. */
 export interface SlotDeclaration {
   /** SlotMap key, e.g. `settings.section`. */
@@ -94,7 +97,7 @@ export function scanSlotFiles(scanRoot: string, patterns: readonly string[]): Sc
   const out: ScannedFile[] = []
   const names = new Map<string, string>()
   const rels = [...new Set(globSync(patterns as string[], { cwd: scanRoot })
-    .map(path => path.split(sep).join('/')))].sort()
+    .map(path => path.split(sep).join('/')))].filter(rel => !OXLINT_PROBE.test(rel)).sort()
   for (const rel of rels) {
     const abs = resolve(scanRoot, rel)
     const text = readFileSync(abs, 'utf8')
@@ -121,7 +124,7 @@ export function indexExportedTypes(scanRoot: string, patterns: readonly string[]
   const index = new Map<string, TypeDeclaration>()
   const ambiguous = new Set<string>()
   const rels = [...new Set(globSync(patterns as string[], { cwd: scanRoot })
-    .map(path => path.split(sep).join('/')))].sort()
+    .map(path => path.split(sep).join('/')))].filter(rel => !OXLINT_PROBE.test(rel)).sort()
   for (const rel of rels) {
     const abs = resolve(scanRoot, rel)
     const sf = ts.createSourceFile(abs, readFileSync(abs, 'utf8'), ts.ScriptTarget.Latest, true, scriptKindOf(rel))
