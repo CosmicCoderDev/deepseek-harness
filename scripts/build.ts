@@ -18,7 +18,14 @@ function runScript(script: string, environment: NodeJS.ProcessEnv): void {
   if (packageManager === undefined || packageManager === '') {
     throw new Error('build: npm_execpath is unavailable; invoke the build through a package script')
   }
-  const result = spawnSync(process.execPath, [packageManager, 'run', script], {
+  // npm_execpath is commonly a JavaScript entry point, but standalone package
+  // manager distributions (for example @pnpm/exe installed by mise) expose a
+  // native executable. Passing that binary to Node makes Node try to parse its
+  // Mach-O/ELF bytes as JavaScript.
+  const isJavaScriptEntry = /\.(?:c|m)?js$/u.test(packageManager)
+  const command = isJavaScriptEntry ? process.execPath : packageManager
+  const args = isJavaScriptEntry ? [packageManager, 'run', script] : ['run', script]
+  const result = spawnSync(command, args, {
     cwd: resolve(import.meta.dirname, '..'),
     env: environment,
     stdio: 'inherit',
