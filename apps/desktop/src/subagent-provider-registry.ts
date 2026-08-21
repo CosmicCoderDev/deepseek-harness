@@ -83,6 +83,24 @@ function friendlyDetail(product: 'Codex' | 'Claude Code', error: unknown): strin
   return `${explained.detail} ${explained.action}`
 }
 
+/** Resolve files that electron-builder moved from app.asar into app.asar.unpacked. */
+export function executableAppPath(appPath: string): string {
+  return appPath.endsWith('.asar') ? `${appPath}.unpacked` : appPath
+}
+
+function claudePlatformPackage(): string | undefined {
+  const platform = process.platform === 'win32' ? 'win32' : process.platform === 'darwin' ? 'darwin' : process.platform === 'linux' ? 'linux' : undefined
+  const architecture = process.arch === 'x64' ? 'x64' : process.arch === 'arm64' ? 'arm64' : undefined
+  if (platform === undefined || architecture === undefined) return undefined
+  return `@anthropic-ai/claude-agent-sdk-${platform}-${architecture}`
+}
+
+function claudeBinary(appPath: string): string | undefined {
+  const packageName = claudePlatformPackage()
+  if (packageName === undefined) return undefined
+  return join(executableAppPath(appPath), 'node_modules', packageName, process.platform === 'win32' ? 'claude.exe' : 'claude')
+}
+
 const commonCapabilities = [
   'read-only', 'workspace-write', 'full-access', 'login', 'connectivity-test',
 ] as const
@@ -91,10 +109,10 @@ const codex: DesktopSubagentProvider = {
   id: 'codex',
   displayName: 'Codex',
   capabilities: commonCapabilities,
-  supportedPlatforms: ['darwin'],
+  supportedPlatforms: ['darwin', 'win32', 'linux'],
   connectivityUrl: 'https://api.openai.com/v1/models',
   async inspect(appPath) {
-    const wrapper = join(appPath, 'node_modules', '@openai/codex/bin/codex.js')
+    const wrapper = join(executableAppPath(appPath), 'node_modules', '@openai/codex/bin/codex.js')
     if (!await exists(wrapper)) return { installed: false, authenticated: false, detail: '未内置' }
     return await execute(process.execPath, [wrapper, 'login', 'status'], {
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, timeout: 10_000,
@@ -103,8 +121,10 @@ const codex: DesktopSubagentProvider = {
     }))
   },
   loginCommand(appPath, executablePath) {
-    const wrapper = join(appPath, 'node_modules', '@openai/codex/bin/codex.js')
-    return `env ELECTRON_RUN_AS_NODE=1 ${shellQuote(executablePath)} ${shellQuote(wrapper)} login`
+    const wrapper = join(executableAppPath(appPath), 'node_modules', '@openai/codex/bin/codex.js')
+    return process.platform === 'win32'
+      ? `$env:ELECTRON_RUN_AS_NODE='1'; & ${powershellQuote(executablePath)} ${powershellQuote(wrapper)} login`
+      : `env ELECTRON_RUN_AS_NODE=1 ${shellQuote(executablePath)} ${shellQuote(wrapper)} login`
   },
   permissionMode(tier) {
     return tier === 'read-only' ? 'never' : tier === 'project-development' ? 'approve-for-me' : 'dangerously-bypass-approvals-and-sandbox'
@@ -118,10 +138,11 @@ const claude: DesktopSubagentProvider = {
   id: 'claude',
   displayName: 'Claude Code',
   capabilities: commonCapabilities,
-  supportedPlatforms: ['darwin'],
+  supportedPlatforms: ['darwin', 'win32', 'linux'],
   connectivityUrl: 'https://api.anthropic.com/v1/models',
   async inspect(appPath) {
-    const binary = join(appPath, 'node_modules', '@anthropic-ai/claude-agent-sdk-darwin-arm64/claude')
+    const binary = claudeBinary(appPath)
+    if (binary === undefined) return { installed: false, authenticated: false, detail: '当前平台不受支持' }
     if (!await exists(binary)) return { installed: false, authenticated: false, detail: '未内置' }
     return await execute(binary, ['auth', 'status'], { env: process.env, timeout: 10_000 })
       .then(result => parseClaudeAuth(result.stdout), (error: unknown) => ({
@@ -129,8 +150,11 @@ const claude: DesktopSubagentProvider = {
       }))
   },
   loginCommand(appPath) {
-    const binary = join(appPath, 'node_modules', '@anthropic-ai/claude-agent-sdk-darwin-arm64/claude')
-    return `${shellQuote(binary)} auth login`
+    const binary = claudeBinary(appPath)
+    if (binary === undefined) throw new Error('当前平台不受 Claude Code 支持')
+    return process.platform === 'win32'
+      ? `& ${powershellQuote(binary)} auth login`
+      : `${shellQuote(binary)} auth login`
   },
   permissionMode(tier) {
     return tier === 'read-only' ? 'plan' : tier === 'project-development' ? 'acceptEdits' : 'bypassPermissions'
@@ -148,4 +172,8 @@ export { parseClaudeAuth, parseCodexAuth }
 
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`
+}
+
+function powershellQuote(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`
 }

@@ -310,8 +310,9 @@ export class ClientModuleRegistry extends Service {
   /**
    * Build the service: subscribe, seed, and run the activation flush.
    * @param ctx - plugin context carrying webServer and loader.
+   * @param config - optional installed-host module resolution base.
    */
-  constructor(ctx: Context) {
+  constructor(ctx: Context, config: { readonly moduleBaseUrl?: string } = {}) {
     super(ctx, 'clientModules')
     // Resolution anchor: the config tree's baseUrl (the cordis.yml directory,
     // whose package declares every composed plugin as a dependency). The
@@ -320,7 +321,7 @@ export class ClientModuleRegistry extends Service {
     if (ctx.baseUrl === undefined) {
       throw new Error('client-modules: ctx.baseUrl is unset — the node half needs the config-tree anchor to resolve plugin packages')
     }
-    const require = createRequire(ctx.baseUrl)
+    const require = createRequire(config.moduleBaseUrl ?? ctx.baseUrl)
     this.resolvePkgJson = spec => require.resolve(`${spec}/package.json`)
 
     // Subscribe before seeding so a fiber arriving mid-activation lands in the

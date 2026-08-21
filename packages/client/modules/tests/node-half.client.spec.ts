@@ -161,6 +161,20 @@ describe('HTML bootstrap facade', () => {
 })
 
 describe('client bundle activation', () => {
+  it('resolves package metadata from an explicit installed-host base', () => {
+    const packageName = '@fixture/installed-client'
+    const clientPath = writePackage(packageName)
+    mkdirSync(dirname(clientPath), { recursive: true })
+    writeFileSync(clientPath, 'module.exports = {}\n')
+    const ctx = new Context()
+    ctx.baseUrl = pathToFileURL(join(root!, 'writable-profile')).href + '/'
+    ctx.provide('loader', {
+      *entries() { yield { options: { name: packageName }, fiber: {}, disabled: false } },
+    })
+    const service = new ClientModuleRegistry(ctx, { moduleBaseUrl: pathToFileURL(join(root!, 'host.js')).href })
+    expect(service.graph().entries.map(entry => entry.id)).toEqual([packageName])
+  })
+
   it('allows sibling dsh roles', () => {
     const currentName = '@fixture/current-client-field'
     const clientPath = writePackage(currentName, {

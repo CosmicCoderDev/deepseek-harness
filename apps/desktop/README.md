@@ -6,7 +6,7 @@ Native Electron application for DeepSeek Harness. It starts the Host inside the 
 
 ## Current status
 
-The desktop surface is a developer preview. The current packaging workflow is validated for Apple silicon (`arm64`) macOS. It produces an unsigned, non-notarized application without automatic updates; Windows, Linux, and Intel macOS packages are not release targets yet.
+The desktop surface is a developer preview. The complete application is validated locally on Apple silicon (`arm64`) macOS. Unsigned Intel macOS and Windows x64 packages are built by the desktop CI matrix, but have not been installed on physical machines in this project. Signing and notarization are intentionally outside the current milestone. The packaged application includes an opt-in update checker for GitHub releases; unsigned preview updates remain subject to operating-system security prompts.
 
 Running from source requires Node.js `^22.19.0` or `>=24.0.0` and the repository's pinned pnpm version. The packaged application includes its runtime and does not require a separate Node.js installation.
 
@@ -56,7 +56,7 @@ The desktop main process records startup, Host lifecycle, renderer-load errors, 
 - Choose **Help → Export Diagnostics** to create a text report containing application, Electron, Chromium, and Node versions, platform facts, and at most the last 256 KiB of the log.
 - The report asks you to review it before sharing. Nothing is uploaded, and a report exists only after you choose its destination.
 
-Choose **DeepSeek Harness → Desktop Settings** or **Help → Proxy Settings** to open the desktop settings page and switch between automatic macOS system proxy discovery, a manual proxy, and direct connections. Manual mode provides an input for an `http://`, `https://`, or `socks5://` address and applies it immediately after saving. Automatic mode checks for system proxy changes every five seconds. Every mode keeps `localhost`, `127.0.0.1`, `::1`, and `.local` direct, so Ollama never uses an external proxy. The same page can test reachability for OpenAI, Anthropic, DeepSeek, and Ollama without sending prompts or credentials.
+Choose **DeepSeek Harness → Desktop Settings** or **Help → Proxy Settings** to open the desktop settings page and switch between automatic macOS system proxy discovery, a manual proxy, and direct connections. Manual mode provides an input for an `http://`, `https://`, or `socks5://` address and applies it immediately after saving. Automatic mode checks for system proxy changes every thirty seconds. Every mode keeps `localhost`, `127.0.0.1`, `::1`, and `.local` direct, so Ollama never uses an external proxy. The same page can test reachability for OpenAI, Anthropic, DeepSeek, and Ollama without sending prompts or credentials.
 
 The page also provides Read-only Analysis, Project Development, and Full Access permission tiers. Read-only maps to Codex `never` and Claude Code `plan`; Project Development maps to Codex `approve-for-me` and Claude Code `acceptEdits`; Full Access maps to both products' native bypass modes and requires a second confirmation. Permission changes take effect on the next desktop Host start.
 
@@ -88,7 +88,9 @@ To install the local build:
 3. Eject the disk image.
 4. On the first launch, right-click **DeepSeek Harness**, choose **Open**, and confirm the macOS prompt if Gatekeeper blocks the unsigned build.
 
-The packaged application keeps its runtime dependency tree on the real filesystem instead of inside ASAR. The profile loader maintains a `node_modules` fallback with symlinks for dynamically configured plugins, so those package directories must remain physical. The macOS packaging command finishes by starting both the Host and renderer with an empty temporary `DSH_HOME`; a missing static, peer, or profile-loaded dependency fails the build.
+The packaged application stores JavaScript application and plugin code in ASAR. Only executable or native Codex, Claude Code, and terminal dependencies are unpacked. Closed-runtime module discovery uses an explicit installed-application resolution anchor, so a writable user profile cannot shadow the packaged plugin set. The macOS packaging command finishes by starting both the Host and renderer with an empty temporary `DSH_HOME`; a missing static, peer, or profile-loaded dependency fails the build.
+
+The repository desktop workflow also builds unsigned Apple Silicon macOS, Intel macOS, and Windows x64 artifacts. These jobs verify that platform-specific Codex and Claude Code packages are present. Only the Apple Silicon artifact has completed local installation and runtime validation; CI success for the other two targets is build evidence, not physical-device certification.
 
 Run the packaged smoke test again without rebuilding:
 

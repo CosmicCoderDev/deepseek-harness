@@ -40,7 +40,7 @@ pnpm dsh web
 
 `pnpm run build` 会准备仓库产物。`pnpm dsh web` 会直接使用这些已构建产物，不会重新构建。
 
-### 桌面应用（macOS Apple 芯片预览版）
+### 桌面应用（跨平台预览版）
 
 桌面应用是同一套 Harness 产品的原生分发方式，并非单独制作的简化 UI。它保留现有 Agent、会话、工具、插件图、模型提供方设置和本地模型支持，仅将浏览器通信载体替换为 Electron 边界。
 
@@ -51,7 +51,7 @@ pnpm dsh web
 | RPC 载体 | 回环地址上的 HTTP 和 WebSocket | 上下文隔离的 Electron IPC |
 | 监听端口 | 默认 `127.0.0.1:3080` | 无 |
 | 安装后是否需要 Node.js | 运行 CLI 时需要 | 已包含在应用中 |
-| 当前打包目标 | Node.js 支持的平台 | Apple 芯片 macOS（`arm64`） |
+| 当前打包目标 | Node.js 支持的平台 | macOS arm64/x64 与 Windows x64 |
 
 从 Fork 的 rc.8 功能分支构建桌面应用：
 
@@ -66,7 +66,7 @@ pnpm dist:desktop:mac
 
 该命令会构建共享 Host 和 Web UI、创建 Electron 应用、在 `apps/desktop/dist` 下生成 DMG 和 ZIP，并使用空的临时 `DSH_HOME` 对打包后的 Host 与渲染进程做冒烟测试。安装时打开生成的 arm64 DMG，将 **DeepSeek Harness** 拖入**应用程序**，推出镜像后启动应用。预览版未签名；若 Gatekeeper 阻止首次启动，请右键应用并选择**打开**。
 
-不创建安装包的开发运行方式是 `pnpm desktop`。当前仅验证 Apple 芯片 macOS；签名、公证、自动更新、Windows、Linux 和 Intel macOS 打包尚未实现。架构、安全、本地模型配置、测试及故障排除详见[桌面应用指南](apps/desktop/README.md)。
+不创建安装包的开发运行方式是 `pnpm desktop`。Apple 芯片 macOS 已完成本机验证；CI 会构建未签名的 Intel macOS 与 Windows x64 安装包，但仍需对应实体设备验证。签名与公证不属于当前里程碑。安装包包含由用户确认的 GitHub Release 更新检查。架构、安全、本地模型配置、测试及故障排除详见[桌面应用指南](apps/desktop/README.md)。
 
 ## 配置模型
 

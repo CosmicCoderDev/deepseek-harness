@@ -13,12 +13,20 @@
     "test": "vitest run --root ../.. apps/desktop/tests",
     "smoke:packaged:mac": "node scripts/smoke-packaged-mac.mjs",
     "smoke:subagents:mac": "node scripts/smoke-subagents-mac.mjs",
-    "dist:mac": "pnpm -w run build && pnpm run build && electron-builder --mac dmg zip && pnpm run smoke:packaged:mac"
+    "dist:mac": "pnpm -w run build && pnpm run build && electron-builder --mac dmg zip && pnpm run smoke:packaged:mac",
+    "dist:mac:arm64": "electron-builder --mac dmg zip --arm64",
+    "dist:mac:x64": "electron-builder --mac dmg zip --x64",
+    "dist:win:x64": "electron-builder --win nsis zip --x64"
   },
   "build": {
     "appId": "ai.deepseek.harness.desktop",
     "productName": "DeepSeek Harness",
-    "asar": false,
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/@openai/**/*",
+      "node_modules/@anthropic-ai/**/*",
+      "node_modules/node-pty/**/*"
+    ],
     "files": [
       "lib/**/*",
       "assets/**/*",
@@ -34,11 +42,32 @@
     "directories": {
       "output": "dist"
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "CosmicCoderDev",
+        "repo": "deepseek-harness"
+      }
+    ],
     "mac": {
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.png",
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "identity": null
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "zip"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false
     }
   },
   "license": "MIT",
@@ -46,6 +75,7 @@
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/cordis-plugin-group": "workspace:^",
     "@deepseek-ai/dsh": "workspace:^",
+    "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-anonymous-user-id": "workspace:^",
     "@deepseek-ai/dsh-app-boot": "workspace:^",
     "@deepseek-ai/dsh-atomic-write": "workspace:^",
@@ -56,9 +86,8 @@
     "@deepseek-ai/dsh-compaction": "workspace:^",
     "@deepseek-ai/dsh-fs": "workspace:^",
     "@deepseek-ai/dsh-host-apiproxy": "workspace:^",
-    "@deepseek-ai/dsh-agent": "workspace:^",
-    "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-output-retention": "workspace:^",
     "@deepseek-ai/dsh-sandbox": "workspace:^",
     "@deepseek-ai/dsh-scope": "workspace:^",
@@ -66,13 +95,14 @@
     "@deepseek-ai/dsh-session-title-llm": "workspace:^",
     "@deepseek-ai/dsh-shell": "workspace:^",
     "@deepseek-ai/dsh-spill": "workspace:^",
+    "@deepseek-ai/dsh-subagent": "workspace:^",
     "@deepseek-ai/dsh-subagent-claude-code": "workspace:^",
     "@deepseek-ai/dsh-subagent-codex": "workspace:^",
-    "@deepseek-ai/dsh-subagent": "workspace:^",
     "@deepseek-ai/dsh-subagent-in-process-driver": "workspace:^",
     "@deepseek-ai/dsh-subprocess": "workspace:^",
     "@deepseek-ai/dsh-timeout": "workspace:^",
-    "@deepseek-ai/dsh-workflow": "workspace:^"
+    "@deepseek-ai/dsh-workflow": "workspace:^",
+    "electron-updater": "^6.8.9"
   },
   "devDependencies": {
     "@types/node": "^22.20.0",

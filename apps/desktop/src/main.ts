@@ -2,7 +2,7 @@
 
 import { access, readFile, writeFile } from 'node:fs/promises'
 import { dirname, extname, join, resolve, sep } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
   app, BrowserWindow, clipboard, dialog, ipcMain, Menu, protocol, shell,
   type IpcMainInvokeEvent, type MessageBoxOptions, type WebContents,
@@ -17,12 +17,14 @@ import {
   recordDesktopDiagnostic,
 } from './diagnostics.ts'
 import { startDesktopHost, type DesktopHost } from './host.ts'
+import { installDesktopUpdater } from './desktop-updater.ts'
 import {
   IPC_ABORT, IPC_BOOT, IPC_FETCH, IPC_STREAM,
   IPC_SETTINGS_COPY_DIAGNOSTICS, IPC_SETTINGS_GET, IPC_SETTINGS_LOGIN, IPC_SETTINGS_OPEN_LOGS,
   IPC_SETTINGS_REFRESH_STATUS, IPC_SETTINGS_RESTART_HOST, IPC_SETTINGS_SAVE,
   IPC_SETTINGS_STATUS_CHANGED, IPC_SETTINGS_TEST,
-  IPC_SETTINGS_PULL_VISION, IPC_SETTINGS_TEST_VISION,
+  IPC_SETTINGS_CANCEL_VISION_PULL, IPC_SETTINGS_PULL_VISION, IPC_SETTINGS_TEST_VISION,
+  IPC_SETTINGS_VISION_PULL_PROGRESS,
   IPC_PROJECT_POLICY_DELETE, IPC_PROJECT_POLICY_GET, IPC_PROJECT_POLICY_RESOLVE, IPC_PROJECT_POLICY_SAVE, IPC_PROJECT_POLICY_SELECT,
   type DesktopFetchResponse, type DesktopStreamEvent,
   type DesktopSettingsView,
@@ -97,16 +99,31 @@ let desktopSettings: DesktopSettings = {
 }
 let proxyRefresh: NodeJS.Timeout | undefined
 let statusRefresh: NodeJS.Timeout | undefined
+let disposeUpdater: (() => void) | undefined
 let statusService: SubagentStatusService | undefined
 let settingsRecoveryWarning: string | undefined
 let projectPolicyRecoveryWarning: string | undefined
 let projectPolicies: ReadonlyMap<string, DesktopProjectPolicy> = new Map()
 let restartRequired = false
 let hostRestarting = false
+let visionPullController: AbortController | undefined
 const activeRequests = new Map<string, { controller: AbortController; url: string }>()
 
 function localModelRoles(): { provider: string; coding: string; vision: string } {
   return { provider: 'ollama', ...desktopSettings.localModels }
+}
+
+function desktopModuleBaseUrl(): string | undefined {
+  if (!app.isPackaged) return undefined
+  return pathToFileURL(join(
+    process.resourcesPath,
+    'app.asar',
+    'node_modules',
+    '@deepseek-ai',
+    'dsh',
+    'lib',
+    'profile-boot.js',
+  )).href
 }
 
 function projectPermissionCap(cwd: string): DesktopProjectPolicy['permissionCap'] | undefined {
@@ -378,11 +395,27 @@ function installIpc(): void {
   ipcMain.handle(IPC_SETTINGS_PULL_VISION, async (event, confirmDownload: unknown) => {
     assertSettingsSender(event.sender.id)
     if (confirmDownload !== true) throw new Error('下载本地视觉模型需要用户确认')
+    if (visionPullController !== undefined) throw new Error('已有视觉模型下载任务正在运行')
     const model = desktopSettings.localModels.vision
+    const controller = new AbortController()
+    visionPullController = controller
     recordDesktopDiagnostic('info', `local vision model download started: ${model}`)
-    const result = await pullOllamaModel(model)
-    recordDesktopDiagnostic('info', `local vision model download completed: ${model}`, result)
-    return await desktopSettingsView()
+    try {
+      const result = await pullOllamaModel(model, fetch, {
+        signal: controller.signal,
+        onProgress: (progress) => {
+          event.sender.send(IPC_SETTINGS_VISION_PULL_PROGRESS, { model, ...progress })
+        },
+      })
+      recordDesktopDiagnostic('info', `local vision model download completed: ${model}`, result)
+      return await desktopSettingsView()
+    } finally {
+      if (visionPullController === controller) visionPullController = undefined
+    }
+  })
+  ipcMain.handle(IPC_SETTINGS_CANCEL_VISION_PULL, (event) => {
+    assertSettingsSender(event.sender.id)
+    visionPullController?.abort(new Error('用户已取消视觉模型下载'))
   })
   ipcMain.handle(IPC_SETTINGS_COPY_DIAGNOSTICS, async (event) => {
     assertSettingsSender(event.sender.id)
@@ -663,7 +696,7 @@ async function restartDesktopHost(): Promise<void> {
     recordDesktopDiagnostic('info', 'desktop Host restart requested')
     await stopHost()
     applySubagentPermission(desktopSettings.subagentPermission)
-    host = await startDesktopHost(projectPermissionCap, projectEnvironment, localModelRoles)
+    host = await startDesktopHost(projectPermissionCap, projectEnvironment, localModelRoles, desktopModuleBaseUrl())
     restartRequired = false
     await openDesktop(false)
     recordDesktopDiagnostic('info', 'desktop Host restarted')
@@ -673,7 +706,12 @@ async function restartDesktopHost(): Promise<void> {
     desktopSettings = safe
     await writeDesktopSettings(proxyHome, safe)
     applySubagentPermission('read-only')
-    host = await startDesktopHost(projectPermissionCap, projectEnvironment, localModelRoles).catch((recoveryError: unknown) => {
+    host = await startDesktopHost(
+      projectPermissionCap,
+      projectEnvironment,
+      localModelRoles,
+      desktopModuleBaseUrl(),
+    ).catch((recoveryError: unknown) => {
       recordDesktopDiagnostic('error', 'desktop Host safe recovery failed', recoveryError)
       return undefined
     })
@@ -782,6 +820,7 @@ if (!ownsInstance) {
     stopping = true
     if (proxyRefresh !== undefined) clearInterval(proxyRefresh)
     if (statusRefresh !== undefined) clearInterval(statusRefresh)
+    disposeUpdater?.()
     void stopHost().finally(() => {
       stopped = true
       app.quit()
@@ -844,12 +883,12 @@ if (!ownsInstance) {
       if (JSON.stringify(next.environment) === JSON.stringify(proxySnapshot.environment)) return
       proxySnapshot = next
       recordDesktopDiagnostic('info', `macOS system proxy changed\n${formatProxySnapshot(proxySnapshot)}`)
-    }, 5_000)
+    }, 30_000)
     proxyRefresh.unref()
     if (await ensureDesktopPreset(join(app.getAppPath(), 'config'), dshHome)) {
       recordDesktopDiagnostic('info', 'desktop Codex + Claude Code preset installed')
     }
-    host = await startDesktopHost(projectPermissionCap, projectEnvironment, localModelRoles)
+    host = await startDesktopHost(projectPermissionCap, projectEnvironment, localModelRoles, desktopModuleBaseUrl())
     recordDesktopDiagnostic('info', 'in-process Host started')
     installIpc()
     installPluginProtocol()
@@ -868,6 +907,10 @@ if (!ownsInstance) {
       app.quit()
       return
     }
+    disposeUpdater = installDesktopUpdater({
+      window: () => mainWindow,
+      report: recordDesktopDiagnostic,
+    })
     if (!await onboardingWasShown()) {
       await showLocalModelSetup(true).catch((error: unknown) => {
         recordDesktopDiagnostic('warn', 'local model onboarding failed', error)

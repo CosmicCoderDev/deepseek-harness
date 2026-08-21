@@ -26,6 +26,18 @@ export interface OllamaStatus {
   readonly error?: string
 }
 
+export interface OllamaPullProgress {
+  readonly status: string
+  readonly completed?: number
+  readonly total?: number
+}
+
+interface OllamaPullOptions {
+  readonly signal?: AbortSignal
+  readonly onProgress?: (progress: OllamaPullProgress) => void
+  readonly timeoutMs?: number
+}
+
 interface OllamaStatusOptions {
   readonly codingModel: string
   readonly visionModel: string
@@ -94,18 +106,39 @@ export async function inspectOllama(
 export async function pullOllamaModel(
   model: string,
   fetcher: typeof fetch = fetch,
-  timeoutMs = 3_600_000,
+  options: OllamaPullOptions = {},
 ): Promise<string> {
+  const timeout = AbortSignal.timeout(options.timeoutMs ?? 3_600_000)
+  const signal = options.signal === undefined ? timeout : AbortSignal.any([options.signal, timeout])
   const response = await fetcher(`${OLLAMA_NATIVE_BASE_URL}/api/pull`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ model, stream: false }),
-    signal: AbortSignal.timeout(timeoutMs),
+    body: JSON.stringify({ model, stream: true }),
+    signal,
   })
-  const text = await response.text()
-  if (!response.ok) throw new Error(`Ollama model download failed (HTTP ${response.status}): ${text.slice(0, 300)}`)
-  const status = string(record(parseJson(text))?.['status'])
-  return status ?? 'success'
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(`Ollama model download failed (HTTP ${response.status}): ${text.slice(0, 300)}`)
+  }
+  if (response.body === null) throw new Error('Ollama model download returned no progress stream')
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let lastStatus = 'starting'
+  for (;;) {
+    const chunk = await reader.read()
+    buffer += decoder.decode(chunk.value, { stream: !chunk.done })
+    const lines = buffer.split('\n')
+    buffer = chunk.done ? '' : lines.pop() ?? ''
+    for (const line of lines) {
+      if (line.trim().length === 0) continue
+      const progress = parsePullProgress(line)
+      lastStatus = progress.status
+      options.onProgress?.(progress)
+    }
+    if (chunk.done) break
+  }
+  return lastStatus
 }
 
 /** Conservative display estimate used only for the pre-download confirmation. */
@@ -242,6 +275,20 @@ function parseCompletionContent(text: string): string | undefined {
 
 function parseJson(text: string): unknown {
   return JSON.parse(text) as unknown
+}
+
+function parsePullProgress(line: string): OllamaPullProgress {
+  const value = record(parseJson(line))
+  const error = string(value?.['error'])
+  if (error !== undefined) throw new Error(`Ollama model download failed: ${error}`)
+  const status = string(value?.['status']) ?? 'downloading'
+  const completed = finiteNumber(value?.['completed'])
+  const total = finiteNumber(value?.['total'])
+  return {
+    status,
+    ...(completed === undefined ? {} : { completed }),
+    ...(total === undefined ? {} : { total }),
+  }
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {

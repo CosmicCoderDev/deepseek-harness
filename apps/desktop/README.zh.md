@@ -6,7 +6,7 @@ DeepSeek Harness 原生 Electron 应用。它在 Electron 主进程内启动 Hos
 
 ## 当前状态
 
-桌面端目前处于开发者预览阶段。现有打包流程只在 Apple 芯片（`arm64`）macOS 上完成验证，生成未签名、未公证且不含自动更新的应用；Windows、Linux 和 Intel Mac 暂时不是发布目标。
+桌面端目前处于开发者预览阶段。完整应用已在 Apple 芯片（`arm64`）macOS 本机验证。桌面 CI 矩阵会构建未签名的 Intel macOS 与 Windows x64 安装包，但本项目尚未在对应实体机器上安装验证。代码签名与公证明确不属于当前里程碑。打包应用包含面向 GitHub Release 的用户确认式更新检查；未签名预览版更新仍会受到操作系统安全提示限制。
 
 从源码运行需要 Node.js `^22.19.0` 或 `>=24.0.0`，并使用仓库固定的 pnpm 版本。打包应用已经包含自身运行时，不需要另行安装 Node.js。
 
@@ -56,7 +56,7 @@ pnpm desktop
 - 选择**帮助 → 导出诊断**生成一个文本报告，其中包含应用版本、Electron/Chromium/Node 版本、平台信息和最多 256 KiB 的日志尾部。
 - 诊断文件会提示在分享前自行检查；只有用户明确选择保存位置时才会生成，不会自动上传。
 
-选择**DeepSeek Harness → 桌面设置**或**帮助 → 代理设置**可打开正式桌面设置页，在“自动读取系统代理”“手动代理”和“不使用代理”之间切换。手动模式提供 `http://`、`https://` 或 `socks5://` 地址输入框，保存后立即生效；自动模式每五秒检查一次 macOS 系统代理变化。三种模式都强制让 `localhost`、`127.0.0.1`、`::1` 和 `.local` 地址直连，因此 Ollama 不会误走外部代理。该页面还可以分别测试 OpenAI、Anthropic、DeepSeek 和 Ollama 的可达性，测试不会发送提示词或凭据。
+选择**DeepSeek Harness → 桌面设置**或**帮助 → 代理设置**可打开正式桌面设置页，在“自动读取系统代理”“手动代理”和“不使用代理”之间切换。手动模式提供 `http://`、`https://` 或 `socks5://` 地址输入框，保存后立即生效；自动模式每三十秒检查一次 macOS 系统代理变化。三种模式都强制让 `localhost`、`127.0.0.1`、`::1` 和 `.local` 地址直连，因此 Ollama 不会误走外部代理。该页面还可以分别测试 OpenAI、Anthropic、DeepSeek 和 Ollama 的可达性，测试不会发送提示词或凭据。
 
 同一页面提供只读分析、项目开发和完全访问三档子代理权限。只读分析映射为 Codex `never` 与 Claude Code `plan`；项目开发映射为 Codex `approve-for-me` 与 Claude Code `acceptEdits`；完全访问映射为两个产品的原生绕过模式，并要求二次确认。权限保存后在下一次启动桌面 Host 时生效。
 
@@ -88,7 +88,9 @@ pnpm --dir apps/desktop run smoke:subagents:mac
 3. 推出磁盘映像。
 4. 首次启动时，如果 Gatekeeper 拦截该未签名构建，请右键 **DeepSeek Harness**、选择**打开**，然后确认 macOS 提示。
 
-打包应用把运行时依赖树保留在真实文件系统中，而不是放进 ASAR。profile loader 会通过软链接维护动态配置插件的 `node_modules` 回退路径，因此这些包目录必须是实体目录。macOS 打包命令最后会使用空的临时 `DSH_HOME` 启动 Host 与渲染进程；任何静态依赖、peer dependency 或 profile 动态依赖缺失都会直接使构建失败。
+打包应用会把 JavaScript 应用代码和插件代码放入 ASAR，只解包 Codex、Claude Code 与终端所需的可执行文件或原生依赖。封闭运行时通过显式的已安装应用解析基准发现模块，因此可写用户 profile 无法遮蔽打包插件集合。macOS 打包命令最后会使用空的临时 `DSH_HOME` 启动 Host 与渲染进程；任何静态依赖、peer dependency 或 profile 动态依赖缺失都会直接使构建失败。
+
+仓库的桌面工作流还会构建未签名的 Apple 芯片 macOS、Intel macOS 与 Windows x64 产物，并检查对应平台的 Codex 和 Claude Code 包是否随应用提供。当前只有 Apple 芯片产物完成了本机安装与运行验证；另外两个目标的 CI 成功仅代表构建证据，不等同于实体设备认证。
 
 如需在不重新打包的情况下再次运行安装包冒烟测试：
 

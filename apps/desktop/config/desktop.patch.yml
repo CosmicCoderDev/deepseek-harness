@@ -43,6 +43,10 @@
   config:
     trustedHosts: []
 
+- id: modules
+  config:
+    moduleBaseUrl: !!js process.env.DSH_DESKTOP_MODULE_BASE_URL
+
 # The desktop build is local-model-first. The stock Web composition exposes
 # web_search even when its DeepSeek credential is absent, which makes a local
 # model repeatedly call a tool that can only fail. Keep the provider settings

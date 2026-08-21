@@ -22,7 +22,7 @@ preload 被构建为单个 CommonJS bundle，因为 Electron 的沙箱 preload �
 
 稳定的 CLI `profile-boot` 导出让 Electron 可以复用受支持的 profile loader，而不需要调用 CLI，也不会启动用户层 HMR watcher。桌面 Host 通过现有的“宿主拥有裸模块”接口传入自身安装模块 URL，使打包插件从应用安装目录解析，而 profile 内的相对路径条目仍在 profile 配置旁解析。共享 Loader 因而继续保持普通源码与测试语义。
 
-Electron Builder 将 Host 闭包、已编译的 preload/主进程、Web dist 与应用图标打入 `DeepSeek Harness.app`，同时生成 DMG 和 ZIP。运行时依赖树保留在真实文件系统中，而不是放进 ASAR，因为 profile 启动会为配置加载的插件维护带软链接的 `node_modules` 回退路径；ASAR 虚拟目录不能成为有效的操作系统软链接目标。桌面 manifest 显式携带 Electron Builder 原本会遗漏的必需 peer service 闭包。打包最后会在隔离用户目录中进行冒烟启动，依次启动 Host、加载渲染外壳并等待已注册的根 UI 插槽；渲染出的启动错误会立即失败，不会再满足笼统的非空根节点检查。工作区链接和已有用户 profile 都不能掩盖不完整的产物。当前配置为本地测试而明确把签名 identity 设为 null。公开分发仍属于发布操作，需要 Developer ID 签名、Hardened Runtime、公证和更新策略；这些发布凭据不会改变运行时架构。
+Electron Builder 将 Host 闭包、已编译的 preload/主进程、Web dist 与应用图标打入 `DeepSeek Harness.app`，同时生成 DMG 和 ZIP。JavaScript 应用代码与插件代码保留在 ASAR 中，只解包 Codex、Claude Code 与终端所需的可执行文件和原生依赖。profile 加载的裸插件在 Loader 导入和客户端包元数据解析时都使用已安装应用 URL，相对 profile 配置项仍以 profile 为基准；这样可保持唯一 Cordis 模块身份，并防止可写 profile 遮蔽客户端 bundle。桌面 manifest 显式携带 Electron Builder 原本会遗漏的必需 peer service 闭包。打包最后会在隔离用户目录中进行冒烟启动，依次启动 Host、加载渲染外壳并等待已注册的根 UI 插槽；渲染出的启动错误会立即失败，不会再满足笼统的非空根节点检查。工作区链接和已有用户 profile 都不能掩盖不完整的产物。当前配置为本地测试而明确把签名 identity 设为 null。公开分发的签名与公证仍属于发布操作，不会改变运行时架构。
 
 ## 考虑过的替代方案
 

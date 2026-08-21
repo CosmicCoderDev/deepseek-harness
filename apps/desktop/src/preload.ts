@@ -17,6 +17,8 @@ import {
   IPC_SETTINGS_TEST,
   IPC_SETTINGS_TEST_VISION,
   IPC_SETTINGS_PULL_VISION,
+  IPC_SETTINGS_CANCEL_VISION_PULL,
+  IPC_SETTINGS_VISION_PULL_PROGRESS,
   IPC_PROJECT_POLICY_DELETE,
   IPC_PROJECT_POLICY_GET,
   IPC_PROJECT_POLICY_SAVE,
@@ -26,6 +28,7 @@ import {
   type DesktopProjectPolicyValue,
   type DesktopProjectPolicyView,
   type DesktopSettingsView,
+  type DesktopVisionPullProgress,
   type DesktopSubagentProduct,
   type DesktopFetchRequest,
   type DesktopFetchResponse,
@@ -76,6 +79,12 @@ contextBridge.exposeInMainWorld('__DSH_SETTINGS__', {
   testVision: (): Promise<string> => ipcRenderer.invoke(IPC_SETTINGS_TEST_VISION) as Promise<string>,
   pullVision: (confirmDownload: boolean): Promise<DesktopSettingsView> =>
     ipcRenderer.invoke(IPC_SETTINGS_PULL_VISION, confirmDownload) as Promise<DesktopSettingsView>,
+  cancelVisionPull: (): Promise<void> => ipcRenderer.invoke(IPC_SETTINGS_CANCEL_VISION_PULL) as Promise<void>,
+  onVisionPullProgress(listener: (progress: DesktopVisionPullProgress) => void): () => void {
+    const wrapped = (_event: Electron.IpcRendererEvent, progress: DesktopVisionPullProgress): void => { listener(progress) }
+    ipcRenderer.on(IPC_SETTINGS_VISION_PULL_PROGRESS, wrapped)
+    return () => { ipcRenderer.removeListener(IPC_SETTINGS_VISION_PULL_PROGRESS, wrapped) }
+  },
   copyDiagnostics: (): Promise<void> => ipcRenderer.invoke(IPC_SETTINGS_COPY_DIAGNOSTICS) as Promise<void>,
   openLogs: (): Promise<void> => ipcRenderer.invoke(IPC_SETTINGS_OPEN_LOGS) as Promise<void>,
   login: (product: DesktopSubagentProduct): Promise<void> => ipcRenderer.invoke(IPC_SETTINGS_LOGIN, product) as Promise<void>,

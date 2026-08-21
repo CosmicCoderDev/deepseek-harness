@@ -40,7 +40,7 @@ pnpm dsh web
 
 `pnpm run build` prepares the repository artifacts. `pnpm dsh web` uses those built artifacts without rebuilding.
 
-### Desktop application (macOS Apple silicon preview)
+### Desktop application (cross-platform preview)
 
 The desktop application is a native distribution of the same Harness product, not a separate simplified UI. It keeps the existing Agent, session, tools, plugin graph, provider settings, and local-model support while replacing the browser carrier with an Electron boundary.
 
@@ -51,7 +51,7 @@ The desktop application is a native distribution of the same Harness product, no
 | RPC carrier | HTTP and WebSocket on loopback | Context-isolated Electron IPC |
 | Listening port | `127.0.0.1:3080` by default | None |
 | Node.js after installation | Required to run the CLI | Included in the application |
-| Current packaged target | Any supported Node.js platform | Apple silicon macOS (`arm64`) |
+| Current packaged target | Any supported Node.js platform | macOS arm64/x64 and Windows x64 |
 
 Build the desktop application from the fork's rc.8 feature branch:
 
@@ -66,7 +66,7 @@ pnpm dist:desktop:mac
 
 The command builds the shared Host and Web UI, creates the Electron application, generates DMG and ZIP artifacts under `apps/desktop/dist`, and smoke-tests the packaged Host and renderer with an empty temporary `DSH_HOME`. To install it, open the generated arm64 DMG, drag **DeepSeek Harness** to **Applications**, eject the image, and launch the application. The preview is unsigned, so use right-click → **Open** on first launch if Gatekeeper blocks it.
 
-For development without an installer, run `pnpm desktop`. Only Apple silicon macOS is currently validated; signing, notarization, automatic updates, Windows, Linux, and Intel macOS packaging remain future work. See the [desktop guide](apps/desktop/README.md) for architecture, security, local-model setup, testing, and troubleshooting.
+For development without an installer, run `pnpm desktop`. Apple silicon macOS is locally validated; CI builds unsigned Intel macOS and Windows x64 packages, which still require physical-device validation. Signing and notarization are outside this milestone. The package includes a user-confirmed GitHub Release update checker. See the [desktop guide](apps/desktop/README.md) for architecture, security, local-model setup, testing, and troubleshooting.
 
 ## Configure a model
 

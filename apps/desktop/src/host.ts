@@ -27,17 +27,26 @@ export async function startDesktopHost(
   permissionCap?: (cwd: string) => SubagentPermissionTier | undefined,
   environmentPolicy?: (cwd: string, environment: Readonly<NodeJS.ProcessEnv>) => NodeJS.ProcessEnv,
   localModelRoles?: () => LocalModelRoles,
+  bareModuleBaseUrl = import.meta.url,
 ): Promise<DesktopHost> {
-  const { ctx } = await runProfile({
-    environment: loadLayeredEnv('dsh'),
-    profile: 'web',
-    patchFiles: [DESKTOP_PATCH],
-    args: [],
-    watchUserLayers: false,
-    // The packaged Host owns the complete plugin set. Resolve bare configured
-    // packages beside this installed module instead of from the writable profile.
-    bareModuleBaseUrl: import.meta.url,
-  })
+  const previousModuleBaseUrl = process.env.DSH_DESKTOP_MODULE_BASE_URL
+  process.env.DSH_DESKTOP_MODULE_BASE_URL = bareModuleBaseUrl
+  let ctx: Context
+  try {
+    ;({ ctx } = await runProfile({
+      environment: loadLayeredEnv('dsh'),
+      profile: 'web',
+      patchFiles: [DESKTOP_PATCH],
+      args: [],
+      watchUserLayers: false,
+      // The packaged Host owns the complete plugin set. Resolve bare configured
+      // packages beside this installed module instead of from the writable profile.
+      bareModuleBaseUrl,
+    }))
+  } finally {
+    if (previousModuleBaseUrl === undefined) delete process.env.DSH_DESKTOP_MODULE_BASE_URL
+    else process.env.DSH_DESKTOP_MODULE_BASE_URL = previousModuleBaseUrl
+  }
   try {
     if (localModelRoles !== undefined) installLocalVisionRouting(ctx, localModelRoles)
     if (permissionCap !== undefined || environmentPolicy !== undefined) {

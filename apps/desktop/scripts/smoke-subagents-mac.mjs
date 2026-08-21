@@ -7,10 +7,10 @@ import { promisify } from 'node:util'
 const execute = promisify(execFile)
 const productName = 'DeepSeek Harness'
 const appPath = resolve(process.argv[2] ?? `/Applications/${productName}.app`)
-const resources = join(appPath, 'Contents', 'Resources', 'app')
+const resources = join(appPath, 'Contents', 'Resources', 'app.asar.unpacked')
 const executable = join(appPath, 'Contents', 'MacOS', productName)
 const codex = join(resources, 'node_modules', '@openai', 'codex', 'bin', 'codex.js')
-const claude = join(resources, 'node_modules', '@anthropic-ai', 'claude-agent-sdk-darwin-arm64', 'claude')
+const claude = join(resources, 'node_modules', '@anthropic-ai', `claude-agent-sdk-darwin-${process.arch}`, 'claude')
 const timeout = 120_000
 const environment = await environmentWithSystemProxy(process.env)
 
