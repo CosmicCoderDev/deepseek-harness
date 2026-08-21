@@ -8,6 +8,7 @@ import { loadLayeredEnv } from '@deepseek-ai/dsh-app-boot'
 import { toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
 import type { HostConnectionHandle } from '@deepseek-ai/dsh-client-connection'
 import type { ClientModuleRegistry, WebBootGraph } from '@deepseek-ai/dsh-client-modules'
+import { installLocalVisionRouting, type LocalModelRoles } from './local-vision-routing.ts'
 
 /** Ready in-process Host and the local assets selected by its client graph. */
 export interface DesktopHost {
@@ -25,6 +26,7 @@ const DESKTOP_PATCH = fileURLToPath(new URL('../config/desktop.patch.yml', impor
 export async function startDesktopHost(
   permissionCap?: (cwd: string) => SubagentPermissionTier | undefined,
   environmentPolicy?: (cwd: string, environment: Readonly<NodeJS.ProcessEnv>) => NodeJS.ProcessEnv,
+  localModelRoles?: () => LocalModelRoles,
 ): Promise<DesktopHost> {
   const { ctx } = await runProfile({
     environment: loadLayeredEnv('dsh'),
@@ -37,6 +39,7 @@ export async function startDesktopHost(
     bareModuleBaseUrl: import.meta.url,
   })
   try {
+    if (localModelRoles !== undefined) installLocalVisionRouting(ctx, localModelRoles)
     if (permissionCap !== undefined || environmentPolicy !== undefined) {
       const subagents = required(ctx, 'subagents') as {
         registerPermissionCeiling(
