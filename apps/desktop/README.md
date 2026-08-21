@@ -46,6 +46,8 @@ On first launch, the desktop application reads Ollama's local `GET /api/tags` li
 
 The desktop build is local-model-first and does not advertise the `web_search` tool, which requires `DEEPSEEK_API_KEY`, to the model. A user who configures only Ollama therefore cannot enter a repeated, guaranteed-failure DeepSeek search loop. The official base composition also keeps `web_fetch` disabled for SSRF safety, and the desktop surface does not bypass that boundary. DeepSeek search settings remain available for a future explicit online-search opt-in.
 
+The native desktop settings page configures separate local coding and local vision model roles. It reads installed model sizes from Ollama `/api/tags`, obtains declared image capability from `/api/show`, and shows current residency from `/api/ps`; a missing capability field remains **Unknown** rather than being guessed from the model name. **Test Image Recognition** sends a bundled one-pixel PNG through Ollama's OpenAI-compatible `/v1/chat/completions` endpoint and reports the actual assistant response. The application never downloads a model automatically, and the selected model names do not yet rewrite the Harness provider catalog; declare image input for the vision model in **Settings → Models** before using it in a conversation.
+
 ## Diagnostic logs
 
 The desktop main process records startup, Host lifecycle, renderer-load errors, and exceptional states in the operating system log directory. Common API-key, bearer-token, authorization-header, and password shapes are redacted before disk writes. Environment variables and model conversation content are not collected.

@@ -36,6 +36,7 @@ describe('desktop settings', () => {
         version: 1,
         proxy: { mode: 'manual', url: 'http://127.0.0.1:7897' },
         subagentPermission: 'read-only',
+        localModels: { coding: 'qwen3-coder:30b', vision: 'qwen3-vl:8b' },
       })
       expect(JSON.parse(await readFile(join(home, 'desktop-settings.json'), 'utf8'))).toEqual(settings)
     } finally {
@@ -50,6 +51,7 @@ describe('desktop settings', () => {
         version: 1 as const,
         proxy: { mode: 'direct' as const },
         subagentPermission: 'project-development' as const,
+        localModels: { coding: 'qwen3-coder:30b', vision: 'qwen3-vl:8b' },
       }
       await writeDesktopSettings(home, settings)
       await expect(readDesktopSettings(home)).resolves.toEqual(settings)
@@ -63,7 +65,7 @@ describe('desktop settings', () => {
     try {
       await writeFile(join(home, 'desktop-settings.json'), '{not-json}\n')
       const result = await readDesktopSettingsWithRecovery(home)
-      expect(result.settings).toEqual({ version: 1, proxy: { mode: 'system' }, subagentPermission: 'read-only' })
+      expect(result.settings).toEqual({ version: 1, proxy: { mode: 'system' }, subagentPermission: 'read-only', localModels: { coding: 'qwen3-coder:30b', vision: 'qwen3-vl:8b' } })
       expect(result.recoveryWarning).toContain('已保留原文件')
       expect(await readFile(result.recoveredFile!, 'utf8')).toBe('{not-json}\n')
       expect(JSON.parse(await readFile(join(home, 'desktop-settings.json'), 'utf8'))).toEqual(result.settings)

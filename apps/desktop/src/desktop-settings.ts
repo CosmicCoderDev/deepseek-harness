@@ -12,6 +12,10 @@ export interface DesktopSettings {
   readonly version: 1
   readonly proxy: ProxySettings
   readonly subagentPermission: SubagentPermission
+  readonly localModels: {
+    readonly coding: string
+    readonly vision: string
+  }
 }
 
 export interface DesktopSettingsReadResult {
@@ -26,6 +30,7 @@ export const DEFAULT_DESKTOP_SETTINGS: DesktopSettings = {
   version: 1,
   proxy: { mode: 'system' },
   subagentPermission: 'read-only',
+  localModels: { coding: 'qwen3-coder:30b', vision: 'qwen3-vl:8b' },
 }
 
 /** Read current settings and migrate the former proxy-only file when needed. */
@@ -73,7 +78,7 @@ export function applySubagentPermission(permission: SubagentPermission, environm
 /** Reject settings values received across IPC or read from disk. */
 export function validateDesktopSettings(value: unknown): DesktopSettings {
   if (typeof value !== 'object' || value === null) throw new Error('桌面设置格式无效')
-  const candidate = value as { version?: unknown; proxy?: unknown; subagentPermission?: unknown }
+  const candidate = value as { version?: unknown; proxy?: unknown; subagentPermission?: unknown; localModels?: unknown }
   if (candidate.version !== 1) throw new Error('不支持的桌面设置版本')
   const permission = candidate.subagentPermission
   if (permission !== 'read-only' && permission !== 'project-development' && permission !== 'full-access') {
@@ -86,5 +91,13 @@ export function validateDesktopSettings(value: unknown): DesktopSettings {
   else if (proxyValue.mode === 'manual' && typeof proxyValue.url === 'string') {
     proxy = { mode: 'manual', url: validateProxyUrl(proxyValue.url) }
   } else throw new Error('代理模式无效')
-  return { version: 1, proxy, subagentPermission: permission }
+  let localModels = DEFAULT_DESKTOP_SETTINGS.localModels
+  if (candidate.localModels !== undefined) {
+    if (typeof candidate.localModels !== 'object' || candidate.localModels === null) throw new Error('本地模型设置格式无效')
+    const models = candidate.localModels as { coding?: unknown; vision?: unknown }
+    if (typeof models.coding !== 'string' || models.coding.trim().length === 0) throw new Error('本地代码模型不能为空')
+    if (typeof models.vision !== 'string' || models.vision.trim().length === 0) throw new Error('本地视觉模型不能为空')
+    localModels = { coding: models.coding.trim(), vision: models.vision.trim() }
+  }
+  return { version: 1, proxy, subagentPermission: permission, localModels }
 }

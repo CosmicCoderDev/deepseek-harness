@@ -22,6 +22,7 @@ import {
   IPC_SETTINGS_COPY_DIAGNOSTICS, IPC_SETTINGS_GET, IPC_SETTINGS_LOGIN, IPC_SETTINGS_OPEN_LOGS,
   IPC_SETTINGS_REFRESH_STATUS, IPC_SETTINGS_RESTART_HOST, IPC_SETTINGS_SAVE,
   IPC_SETTINGS_STATUS_CHANGED, IPC_SETTINGS_TEST,
+  IPC_SETTINGS_TEST_VISION,
   IPC_PROJECT_POLICY_DELETE, IPC_PROJECT_POLICY_GET, IPC_PROJECT_POLICY_RESOLVE, IPC_PROJECT_POLICY_SAVE, IPC_PROJECT_POLICY_SELECT,
   type DesktopFetchResponse, type DesktopStreamEvent,
   type DesktopSettingsView,
@@ -50,6 +51,7 @@ import {
 } from './proxy-settings.ts'
 import { formatConnectivityResults, testProviderConnectivity } from './connectivity.ts'
 import { desktopSubagentProviders } from './subagent-provider-registry.ts'
+import { inspectOllama, testOllamaVision } from './ollama-status.ts'
 import {
   applySubagentPermission,
   readDesktopSettingsWithRecovery,
@@ -91,6 +93,7 @@ let desktopSettings: DesktopSettings = {
   version: 1,
   proxy: { mode: 'system' },
   subagentPermission: 'read-only',
+  localModels: { coding: 'qwen3-coder:30b', vision: 'qwen3-vl:8b' },
 }
 let proxyRefresh: NodeJS.Timeout | undefined
 let statusRefresh: NodeJS.Timeout | undefined
@@ -361,6 +364,13 @@ function installIpc(): void {
     recordDesktopDiagnostic(results.every(result => result.ok) ? 'info' : 'warn', 'provider connectivity test', detail)
     return detail
   })
+  ipcMain.handle(IPC_SETTINGS_TEST_VISION, async (event) => {
+    assertSettingsSender(event.sender.id)
+    const model = desktopSettings.localModels.vision
+    const result = await testOllamaVision(model)
+    recordDesktopDiagnostic('info', `local vision test succeeded: ${model}`)
+    return `✓ ${model}: ${result}`
+  })
   ipcMain.handle(IPC_SETTINGS_COPY_DIAGNOSTICS, async (event) => {
     assertSettingsSender(event.sender.id)
     clipboard.writeText(await createDesktopDiagnostics(diagnosticMetadata()))
@@ -447,7 +457,13 @@ function projectPolicyExpandsAuthority(policy: DesktopProjectPolicy): boolean {
 }
 
 async function desktopSettingsView(): Promise<DesktopSettingsView> {
-  const snapshot = await requiredStatusService().get()
+  const [snapshot, ollama] = await Promise.all([
+    requiredStatusService().get(),
+    inspectOllama({
+      codingModel: desktopSettings.localModels.coding,
+      visionModel: desktopSettings.localModels.vision,
+    }),
+  ])
   return {
     settings: desktopSettings,
     proxySummary: formatProxySnapshot(proxySnapshot),
@@ -460,6 +476,7 @@ async function desktopSettingsView(): Promise<DesktopSettingsView> {
       supported: provider.supportedPlatforms.includes(process.platform),
       status: snapshot.status[provider.id],
     })),
+    ollama,
     statusCheckedAt: snapshot.checkedAt,
     restartRequired,
     ...(settingsRecoveryWarning === undefined ? {} : { recoveryWarning: settingsRecoveryWarning }),

@@ -33,6 +33,14 @@
   <h1>桌面功能设置</h1>
   <p class="lead">Desktop Features · 子代理、代理、权限与诊断</p>
   <section><h2>子代理状态</h2><div class="grid" id="providers"></div><div class="actions"><button id="refresh">刷新状态</button></div><p class="hint">登录会打开 macOS 终端并自动执行内置 CLI 的官方登录命令；完成网页授权后回到这里刷新状态。</p></section>
+  <section><h2>本地模型（Ollama）</h2>
+    <datalist id="ollamaModelNames"></datalist>
+    <div class="grid"><label>本地代码模型<input id="codingModel" type="text" list="ollamaModelNames" autocomplete="off"></label><label>本地视觉模型<input id="visionModel" type="text" list="ollamaModelNames" autocomplete="off"></label></div>
+    <div class="grid" id="ollamaModels"></div>
+    <div class="actions"><button id="testVision">测试图片识别</button></div>
+    <pre id="visionResult" hidden></pre>
+    <p class="hint">模型首次下载需要联网。下载大模型前请先确认磁盘空间；桌面版不会静默下载模型。能力未知时可以运行真实图片测试，Ollama、模型和图片均留在本机。</p>
+  </section>
   <section><h2>代理</h2>
     <label><input type="radio" name="proxy" value="system">自动读取 macOS 系统代理</label>
     <label><input type="radio" name="proxy" value="manual">手动代理</label>
@@ -73,17 +81,23 @@
   let projectView
   function service(name, state) { return `<strong>${name}</strong><span class="${state.authenticated ? 'ok' : 'bad'}">${state.installed ? '已内置' : '未安装'} · ${state.authenticated ? '已登录' : '未登录'}</span><div class="hint">${escapeHtml(state.detail)}</div>` }
   function escapeHtml(value) { const node = document.createElement('span'); node.textContent = value; return node.innerHTML }
+  function bytes(value) { if (value === undefined) return '未知'; const units = ['B','KB','MB','GB']; let amount = value, unit = 0; while (amount >= 1024 && unit < units.length - 1) { amount /= 1024; unit++ } return `${amount.toFixed(unit < 2 ? 0 : 1)} ${units[unit]}` }
+  function localModel(label, state) { const capability = state.vision === 'supported' ? '支持图片' : state.vision === 'unsupported' ? '不支持图片' : '图片能力未知'; return `<div class="service"><strong>${label}</strong><span class="${state.installed ? 'ok' : 'bad'}">${state.installed ? '已安装' : '未安装'} · ${state.running ? '当前常驻' : '未常驻'}</span><div class="hint">${escapeHtml(state.model)}<br>磁盘：${bytes(state.diskBytes)} · 内存/显存：${bytes(state.residentBytes)}<br>${capability} · ${escapeHtml(state.detail)}</div></div>` }
   async function load() {
     view = await api.get()
     renderStatus()
     document.querySelector(`input[name=proxy][value=${view.settings.proxy.mode}]`).checked = true
     $('proxyUrl').value = view.settings.proxy.url || ''
     document.querySelector(`input[name=permission][value=${view.settings.subagentPermission}]`).checked = true
+    $('codingModel').value = view.settings.localModels.coding
+    $('visionModel').value = view.settings.localModels.vision
     $('proxySummary').textContent = view.proxySummary
     syncManual(); $('restart').hidden = !view.restartRequired; $('notice').textContent = view.recoveryWarning || ''
   }
   function renderStatus() {
     $('providers').innerHTML = view.providers.map(provider => `<div class="service"><div>${service(provider.displayName, provider.status)}</div><div class="hint">能力：${provider.capabilities.map(escapeHtml).join(' · ')}</div><button data-provider="${provider.id}" ${provider.supported ? '' : 'disabled'}>登录 / 重新登录</button></div>`).join('')
+    $('ollamaModelNames').innerHTML = view.ollama.installedModels.map(model => `<option value="${escapeHtml(model.name)}">${bytes(model.diskBytes)}</option>`).join('')
+    $('ollamaModels').innerHTML = localModel('代码角色', view.ollama.coding) + localModel('视觉角色', view.ollama.vision)
     document.querySelectorAll('[data-provider]').forEach(button => { button.onclick = () => login(button.dataset.provider) })
     $('proxySummary').textContent = view.proxySummary
   }
@@ -116,11 +130,13 @@
     if (permission === 'full-access') confirmed = confirm('完全访问会绕过 Codex 与 Claude Code 的原生审批和沙箱。确认只在受控项目中启用吗？')
     if (permission === 'full-access' && !confirmed) { $('notice').textContent = '已取消完全访问设置。'; return }
     const mode = selected('proxy'); const proxy = mode === 'manual' ? { mode, url: $('proxyUrl').value } : { mode }
-    try { view = await api.save({ version: 1, proxy, subagentPermission: permission }, confirmed); $('proxySummary').textContent = view.proxySummary; $('restart').hidden = !view.restartRequired; $('notice').textContent = view.restartRequired ? '已保存。点击“立即重启 Host”使权限生效。' : '已保存并生效。' }
+    const localModels = { coding: $('codingModel').value, vision: $('visionModel').value }
+    try { view = await api.save({ version: 1, proxy, subagentPermission: permission, localModels }, confirmed); renderStatus(); $('proxySummary').textContent = view.proxySummary; $('restart').hidden = !view.restartRequired; $('notice').textContent = view.restartRequired ? '已保存。点击“立即重启 Host”使权限生效。' : '已保存并生效。' }
     catch (error) { $('notice').textContent = error.message || String(error) }
   }
   $('restart').onclick = async () => { $('restart').disabled = true; $('notice').textContent = '正在安全重启 Host…'; try { view = await api.restartHost(); $('restart').hidden = !view.restartRequired; $('notice').textContent = 'Host 已重启，新权限已生效。' } catch (error) { $('notice').textContent = error.message || String(error) } finally { $('restart').disabled = false } }
   $('test').onclick = async () => { $('test').disabled = true; $('testResult').hidden = false; $('testResult').textContent = '正在测试…'; try { $('testResult').textContent = await api.test() } finally { $('test').disabled = false } }
+  $('testVision').onclick = async () => { $('testVision').disabled = true; $('visionResult').hidden = false; $('visionResult').textContent = '正在加载模型并识别本地测试图片…'; try { $('visionResult').textContent = await api.testVision(); view = await api.get(); renderStatus() } catch (error) { $('visionResult').textContent = `✗ ${error.message || String(error)}` } finally { $('testVision').disabled = false } }
   $('copy').onclick = async () => { await api.copyDiagnostics(); $('notice').textContent = '诊断信息已复制并自动脱敏。' }
   $('logs').onclick = () => api.openLogs()
   load().catch(error => { $('notice').textContent = error.message || String(error) })
