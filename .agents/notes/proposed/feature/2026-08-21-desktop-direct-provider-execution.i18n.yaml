@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/proposed/feature/2026-08-21-desktop-direct-provider-execution.md
-2026-08-21-desktop-direct-provider-execution.md: 1286de4afafde613142ecbe2c936d246ec655f9f
-2026-08-21-desktop-direct-provider-execution.zh.md: 9c494bf499e4b439d00354a86b8beb1479e5711f
+2026-08-21-desktop-direct-provider-execution.md: c29c4ddf91962a36b01b0b24002f5e9371885528
+2026-08-21-desktop-direct-provider-execution.zh.md: 3433ad8c306ffe60f0f8f878968cd10f9690cdb0

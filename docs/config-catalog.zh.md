@@ -2907,7 +2907,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-tool-workflow`
 
-需要：`tools` · `workflowEngine` · `systemPrompt`
+需要：`tools` · `workflowEngine` · `systemPrompt` · `subagents`
 
 ```ts config-catalog
 /** Config: the model-facing tool name plus result rendering caps. */
@@ -2916,10 +2916,12 @@ export interface Config {
   toolName?: string
   /** Rendered-result ceiling, in characters: a longer JSON value is truncated with a notice (default 50000). */
   maxResultChars?: number
+  /** Optional fixed Codex implementation → Claude Code review tool. */
+  reviewToolName?: string
 }
 ```
 
-来源：[`packages/workflow/tool-workflow/src/index.ts:33`](../packages/workflow/tool-workflow/src/index.ts)
+来源：[`packages/workflow/tool-workflow/src/index.ts:36`](../packages/workflow/tool-workflow/src/index.ts)
 
 <a id="deepseek-aidsh-tools"></a>
 
