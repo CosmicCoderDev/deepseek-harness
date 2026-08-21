@@ -8,6 +8,8 @@ English | [中文](2026-08-21-desktop-delivery-hardening.zh.md)
 
 The desktop application can start, persist settings, expose provider status, and launch Codex and Claude Code, but several controls are still advisory or incomplete. A user-visible permission preset does not by itself prove that every Host operation is capped, project proxy preferences are not yet enforced throughout provider execution, filesystem boundaries need end-to-end verification, low-level failures are still difficult for ordinary users to act on, and the packaged application has not passed a repeatable multi-provider acceptance suite. Installing another build before these boundaries are pinned would create a package that looks finished without being reliably safe or supportable.
 
+True Codex and Claude Code paths that bypass the local model are specified separately by the [desktop direct Provider execution proposal](2026-08-21-desktop-direct-provider-execution.md); this note retains their permission, proxy, diagnostics, and packaged-acceptance dependencies.
+
 ## Proposal
 
 Complete the desktop delivery work in five ordered stages. Each stage must preserve the existing main-process trust boundary: renderers submit validated intent, while the desktop Host derives executable paths, provider arguments, environment, permissions, and filesystem policy.
