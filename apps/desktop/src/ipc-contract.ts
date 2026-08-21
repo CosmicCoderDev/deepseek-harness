@@ -28,6 +28,7 @@ export const IPC_SETTINGS_GET = 'dsh:settings:get'
 export const IPC_SETTINGS_SAVE = 'dsh:settings:save'
 export const IPC_SETTINGS_TEST = 'dsh:settings:test'
 export const IPC_SETTINGS_TEST_VISION = 'dsh:settings:test-vision'
+export const IPC_SETTINGS_PULL_VISION = 'dsh:settings:pull-vision'
 export const IPC_SETTINGS_COPY_DIAGNOSTICS = 'dsh:settings:copy-diagnostics'
 export const IPC_SETTINGS_OPEN_LOGS = 'dsh:settings:open-logs'
 export const IPC_SETTINGS_LOGIN = 'dsh:settings:login'
@@ -66,6 +67,7 @@ export interface DesktopSettingsView {
   readonly claude: { readonly installed: boolean; readonly authenticated: boolean; readonly detail: string }
   readonly providers: readonly DesktopProviderView[]
   readonly ollama: import('./ollama-status.ts').OllamaStatus
+  readonly visionDownloadBytes?: number
   readonly statusCheckedAt: string
   readonly restartRequired: boolean
   readonly recoveryWarning?: string

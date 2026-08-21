@@ -21,6 +21,7 @@ export interface OllamaStatus {
   readonly installedModels: readonly { readonly name: string; readonly diskBytes?: number }[]
   readonly coding: OllamaModelStatus
   readonly vision: OllamaModelStatus
+  readonly offlineReady: boolean
   readonly checkedAt: string
   readonly error?: string
 }
@@ -72,6 +73,7 @@ export async function inspectOllama(
       })),
       coding,
       vision,
+      offlineReady: vision.installed && vision.vision !== 'unsupported',
       checkedAt,
     }
   } catch (error) {
@@ -81,10 +83,37 @@ export async function inspectOllama(
       installedModels: [],
       coding: unavailableModel(options.codingModel, message),
       vision: unavailableModel(options.visionModel, message),
+      offlineReady: false,
       checkedAt,
       error: message,
     }
   }
+}
+
+/** Pull a model through Ollama's native API after the caller has obtained user confirmation. */
+export async function pullOllamaModel(
+  model: string,
+  fetcher: typeof fetch = fetch,
+  timeoutMs = 3_600_000,
+): Promise<string> {
+  const response = await fetcher(`${OLLAMA_NATIVE_BASE_URL}/api/pull`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ model, stream: false }),
+    signal: AbortSignal.timeout(timeoutMs),
+  })
+  const text = await response.text()
+  if (!response.ok) throw new Error(`Ollama model download failed (HTTP ${response.status}): ${text.slice(0, 300)}`)
+  const status = string(record(parseJson(text))?.['status'])
+  return status ?? 'success'
+}
+
+/** Conservative display estimate used only for the pre-download confirmation. */
+export function estimatedModelDownloadBytes(model: string): number | undefined {
+  const normalized = model.toLowerCase()
+  if (normalized.includes('qwen3-vl:30b') || normalized.includes('gemma4:31b')) return 20 * 1024 ** 3
+  if (normalized.includes('qwen3-vl:8b')) return 6 * 1024 ** 3
+  return undefined
 }
 
 /** Run a real OpenAI-compatible image request against the selected local model. */
@@ -203,12 +232,16 @@ function parseVersion(value: unknown): string | undefined {
 
 function parseCompletionContent(text: string): string | undefined {
   try {
-    const choices = record(JSON.parse(text))?.['choices']
+    const choices = record(parseJson(text))?.['choices']
     if (!Array.isArray(choices)) return undefined
     return string(record(record(choices[0])?.['message'])?.['content'])
   } catch {
     return undefined
   }
+}
+
+function parseJson(text: string): unknown {
+  return JSON.parse(text) as unknown
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {

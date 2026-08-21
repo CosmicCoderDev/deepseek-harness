@@ -22,7 +22,7 @@ import {
   IPC_SETTINGS_COPY_DIAGNOSTICS, IPC_SETTINGS_GET, IPC_SETTINGS_LOGIN, IPC_SETTINGS_OPEN_LOGS,
   IPC_SETTINGS_REFRESH_STATUS, IPC_SETTINGS_RESTART_HOST, IPC_SETTINGS_SAVE,
   IPC_SETTINGS_STATUS_CHANGED, IPC_SETTINGS_TEST,
-  IPC_SETTINGS_TEST_VISION,
+  IPC_SETTINGS_PULL_VISION, IPC_SETTINGS_TEST_VISION,
   IPC_PROJECT_POLICY_DELETE, IPC_PROJECT_POLICY_GET, IPC_PROJECT_POLICY_RESOLVE, IPC_PROJECT_POLICY_SAVE, IPC_PROJECT_POLICY_SELECT,
   type DesktopFetchResponse, type DesktopStreamEvent,
   type DesktopSettingsView,
@@ -51,7 +51,7 @@ import {
 } from './proxy-settings.ts'
 import { formatConnectivityResults, testProviderConnectivity } from './connectivity.ts'
 import { desktopSubagentProviders } from './subagent-provider-registry.ts'
-import { inspectOllama, testOllamaVision } from './ollama-status.ts'
+import { estimatedModelDownloadBytes, inspectOllama, pullOllamaModel, testOllamaVision } from './ollama-status.ts'
 import {
   applySubagentPermission,
   readDesktopSettingsWithRecovery,
@@ -375,6 +375,15 @@ function installIpc(): void {
     recordDesktopDiagnostic('info', `local vision test succeeded: ${model}`)
     return `✓ ${model}: ${result}`
   })
+  ipcMain.handle(IPC_SETTINGS_PULL_VISION, async (event, confirmDownload: unknown) => {
+    assertSettingsSender(event.sender.id)
+    if (confirmDownload !== true) throw new Error('下载本地视觉模型需要用户确认')
+    const model = desktopSettings.localModels.vision
+    recordDesktopDiagnostic('info', `local vision model download started: ${model}`)
+    const result = await pullOllamaModel(model)
+    recordDesktopDiagnostic('info', `local vision model download completed: ${model}`, result)
+    return await desktopSettingsView()
+  })
   ipcMain.handle(IPC_SETTINGS_COPY_DIAGNOSTICS, async (event) => {
     assertSettingsSender(event.sender.id)
     clipboard.writeText(await createDesktopDiagnostics(diagnosticMetadata()))
@@ -468,6 +477,7 @@ async function desktopSettingsView(): Promise<DesktopSettingsView> {
       visionModel: desktopSettings.localModels.vision,
     }),
   ])
+  const visionDownloadBytes = estimatedModelDownloadBytes(desktopSettings.localModels.vision)
   return {
     settings: desktopSettings,
     proxySummary: formatProxySnapshot(proxySnapshot),
@@ -481,6 +491,7 @@ async function desktopSettingsView(): Promise<DesktopSettingsView> {
       status: snapshot.status[provider.id],
     })),
     ollama,
+    ...(visionDownloadBytes === undefined ? {} : { visionDownloadBytes }),
     statusCheckedAt: snapshot.checkedAt,
     restartRequired,
     ...(settingsRecoveryWarning === undefined ? {} : { recoveryWarning: settingsRecoveryWarning }),

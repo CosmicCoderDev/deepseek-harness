@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { inspectOllama, testOllamaVision } from '../src/ollama-status.ts'
+import { estimatedModelDownloadBytes, inspectOllama, pullOllamaModel, testOllamaVision } from '../src/ollama-status.ts'
 
 function response(value: unknown, status = 200): Response {
   return new Response(typeof value === 'string' ? value : JSON.stringify(value), { status })
@@ -36,6 +36,7 @@ describe('desktop Ollama status', () => {
     ])
     expect(status.coding).toMatchObject({ installed: true, running: false, vision: 'unsupported', diskBytes: 18 })
     expect(status.vision).toMatchObject({ installed: true, running: true, vision: 'supported', residentBytes: 4 })
+    expect(status.offlineReady).toBe(true)
   })
 
   it('keeps capability unknown when old Ollama omits metadata', async () => {
@@ -48,6 +49,7 @@ describe('desktop Ollama status', () => {
     const status = await inspectOllama({ codingModel: 'missing', visionModel: 'custom-vision' }, fetcher)
     expect(status.vision.vision).toBe('unknown')
     expect(status.coding.installed).toBe(false)
+    expect(status.offlineReady).toBe(true)
   })
 
   it('reports a successful OpenAI-compatible image inference', async () => {
@@ -62,5 +64,20 @@ describe('desktop Ollama status', () => {
   it('reports an inference failure with response detail', async () => {
     const fetcher = vi.fn(async () => response('model not found', 404)) as unknown as typeof fetch
     await expect(testOllamaVision('missing', fetcher)).rejects.toThrow('model not found')
+  })
+
+  it('downloads a confirmed model through the native non-streaming endpoint', async () => {
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      expect(requestUrl(input)).toBe('http://127.0.0.1:11434/api/pull')
+      expect(JSON.parse(init?.body as string)).toEqual({ model: 'qwen3-vl:8b', stream: false })
+      return response({ status: 'success' })
+    }) as unknown as typeof fetch
+    await expect(pullOllamaModel('qwen3-vl:8b', fetcher)).resolves.toBe('success')
+  })
+
+  it('provides conservative download estimates only for known recommended models', () => {
+    expect(estimatedModelDownloadBytes('qwen3-vl:8b')).toBe(6 * 1024 ** 3)
+    expect(estimatedModelDownloadBytes('qwen3-vl:30b')).toBe(20 * 1024 ** 3)
+    expect(estimatedModelDownloadBytes('private-vision')).toBeUndefined()
   })
 })

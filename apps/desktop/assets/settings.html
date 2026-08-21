@@ -37,7 +37,7 @@
     <datalist id="ollamaModelNames"></datalist>
     <div class="grid"><label>本地代码模型<input id="codingModel" type="text" list="ollamaModelNames" autocomplete="off"></label><label>本地视觉模型<input id="visionModel" type="text" list="ollamaModelNames" autocomplete="off"></label></div>
     <div class="grid" id="ollamaModels"></div>
-    <div class="actions"><button id="testVision">测试图片识别</button></div>
+    <div class="actions"><button id="pullVision" hidden>下载视觉模型…</button><button id="testVision">测试图片识别</button></div>
     <pre id="visionResult" hidden></pre>
     <p class="hint">模型首次下载需要联网。下载大模型前请先确认磁盘空间；桌面版不会静默下载模型。能力未知时可以运行真实图片测试，Ollama、模型和图片均留在本机。</p>
   </section>
@@ -97,7 +97,9 @@
   function renderStatus() {
     $('providers').innerHTML = view.providers.map(provider => `<div class="service"><div>${service(provider.displayName, provider.status)}</div><div class="hint">能力：${provider.capabilities.map(escapeHtml).join(' · ')}</div><button data-provider="${provider.id}" ${provider.supported ? '' : 'disabled'}>登录 / 重新登录</button></div>`).join('')
     $('ollamaModelNames').innerHTML = view.ollama.installedModels.map(model => `<option value="${escapeHtml(model.name)}">${bytes(model.diskBytes)}</option>`).join('')
-    $('ollamaModels').innerHTML = localModel('代码角色', view.ollama.coding) + localModel('视觉角色', view.ollama.vision)
+    $('ollamaModels').innerHTML = localModel('代码角色', view.ollama.coding) + localModel(`视觉角色 · 离线就绪：${view.ollama.offlineReady ? '是' : '否'}`, view.ollama.vision)
+    $('pullVision').hidden = view.ollama.vision.installed
+    $('testVision').disabled = !view.ollama.vision.installed
     document.querySelectorAll('[data-provider]').forEach(button => { button.onclick = () => login(button.dataset.provider) })
     $('proxySummary').textContent = view.proxySummary
   }
@@ -137,6 +139,7 @@
   $('restart').onclick = async () => { $('restart').disabled = true; $('notice').textContent = '正在安全重启 Host…'; try { view = await api.restartHost(); $('restart').hidden = !view.restartRequired; $('notice').textContent = 'Host 已重启，新权限已生效。' } catch (error) { $('notice').textContent = error.message || String(error) } finally { $('restart').disabled = false } }
   $('test').onclick = async () => { $('test').disabled = true; $('testResult').hidden = false; $('testResult').textContent = '正在测试…'; try { $('testResult').textContent = await api.test() } finally { $('test').disabled = false } }
   $('testVision').onclick = async () => { $('testVision').disabled = true; $('visionResult').hidden = false; $('visionResult').textContent = '正在加载模型并识别本地测试图片…'; try { $('visionResult').textContent = await api.testVision(); view = await api.get(); renderStatus() } catch (error) { $('visionResult').textContent = `✗ ${error.message || String(error)}` } finally { $('testVision').disabled = false } }
+  $('pullVision').onclick = async () => { const model = $('visionModel').value.trim(); const size = view.visionDownloadBytes === undefined ? '大小未知' : `预计 ${bytes(view.visionDownloadBytes)}`; if (model !== view.settings.localModels.vision) { $('notice').textContent = '请先保存视觉模型名称，再开始下载。'; return } if (!confirm(`即将下载本地视觉模型 ${model}（${size}）。下载需要联网并占用大量磁盘空间，确认继续吗？`)) return; $('pullVision').disabled = true; $('visionResult').hidden = false; $('visionResult').textContent = `正在下载 ${model}，请勿退出应用…`; try { view = await api.pullVision(true); renderStatus(); $('visionResult').textContent = `✓ ${model} 下载完成，可以断网使用。` } catch (error) { $('visionResult').textContent = `✗ ${error.message || String(error)}` } finally { $('pullVision').disabled = false } }
   $('copy').onclick = async () => { await api.copyDiagnostics(); $('notice').textContent = '诊断信息已复制并自动脱敏。' }
   $('logs').onclick = () => api.openLogs()
   load().catch(error => { $('notice').textContent = error.message || String(error) })

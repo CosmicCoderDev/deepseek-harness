@@ -16,6 +16,7 @@ import {
   IPC_SETTINGS_SAVE,
   IPC_SETTINGS_TEST,
   IPC_SETTINGS_TEST_VISION,
+  IPC_SETTINGS_PULL_VISION,
   IPC_PROJECT_POLICY_DELETE,
   IPC_PROJECT_POLICY_GET,
   IPC_PROJECT_POLICY_SAVE,
@@ -73,6 +74,8 @@ contextBridge.exposeInMainWorld('__DSH_SETTINGS__', {
     ipcRenderer.invoke(IPC_SETTINGS_SAVE, settings, confirmFullAccess) as Promise<DesktopSettingsView>,
   test: (): Promise<string> => ipcRenderer.invoke(IPC_SETTINGS_TEST) as Promise<string>,
   testVision: (): Promise<string> => ipcRenderer.invoke(IPC_SETTINGS_TEST_VISION) as Promise<string>,
+  pullVision: (confirmDownload: boolean): Promise<DesktopSettingsView> =>
+    ipcRenderer.invoke(IPC_SETTINGS_PULL_VISION, confirmDownload) as Promise<DesktopSettingsView>,
   copyDiagnostics: (): Promise<void> => ipcRenderer.invoke(IPC_SETTINGS_COPY_DIAGNOSTICS) as Promise<void>,
   openLogs: (): Promise<void> => ipcRenderer.invoke(IPC_SETTINGS_OPEN_LOGS) as Promise<void>,
   login: (product: DesktopSubagentProduct): Promise<void> => ipcRenderer.invoke(IPC_SETTINGS_LOGIN, product) as Promise<void>,
