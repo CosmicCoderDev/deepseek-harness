@@ -166,7 +166,7 @@ export interface ClaudeCodeRunSpec {
   /** Profile-selected native non-interactive permission mode. */
   readonly permissionMode: ClaudeCodePermissionMode
   /** Explicit deployment/test environment layered after shared scrubbing. */
-  readonly env: Record<string, string>
+  readonly env: NodeJS.ProcessEnv
   /** Subprocess termination grace passed to the shared process-tree owner. */
   readonly disposeGraceMs: number
   /** Shared subprocess service spawn operation. */
@@ -328,10 +328,14 @@ export function claudeQueryOptions(
   ) => void,
   captureDiagnostic: (diagnostic: string) => void,
 ): Options {
+  const env = Object.fromEntries(
+    Object.entries({ ...scrubbedParentEnv(), ...spec.env })
+      .filter((entry): entry is [string, string] => entry[1] !== undefined),
+  )
   return {
     abortController: controller,
     cwd: spec.cwd,
-    env: { ...scrubbedParentEnv(), ...spec.env },
+    env,
     persistSession: false,
     disallowedTools: spec.permissionMode === 'plan'
       ? ['AskUserQuestion', 'ExitPlanMode']

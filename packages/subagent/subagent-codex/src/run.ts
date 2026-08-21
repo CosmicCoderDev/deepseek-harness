@@ -150,7 +150,7 @@ export interface CodexRunSpec {
   /** Profile-selected native non-interactive permission mode. */
   readonly permissionMode: CodexPermissionMode
   /** Explicit deployment/test environment layered after the shared scrub. */
-  readonly env: Record<string, string>
+  readonly env: NodeJS.ProcessEnv
   /** Subprocess termination grace passed to the shared process-tree owner. */
   readonly disposeGraceMs: number
   /** Shared subprocess service spawn operation. */

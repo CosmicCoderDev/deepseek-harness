@@ -680,8 +680,13 @@ describe('task admission and package contracts', () => {
     await ctx.plugin(SubagentRuntime)
     await ctx.plugin(LocalSubprocessRuntime)
     const child = fakeChild()
-    vi.spyOn(ctx.subprocess, 'spawn').mockReturnValue(child.handle)
+    const spawn = vi.spyOn(ctx.subprocess, 'spawn').mockReturnValue(child.handle)
     ctx.subagents.registerPermissionCeiling(({ cwd }) => cwd === process.cwd() ? 'read-only' : 'full-access')
+    ctx.subagents.registerEnvironmentPolicy(request => ({
+      ...request.environment,
+      HTTP_PROXY: undefined,
+      NO_PROXY: 'localhost',
+    }))
     await ctx.plugin(codex, { permissionMode: 'dangerously-bypass-approvals-and-sandbox' })
 
     const controller = new AbortController()
@@ -697,6 +702,10 @@ describe('task admission and package contracts', () => {
     })
     child.peer.respond(threadStart, { thread: { id: 'thread-ceiling', ephemeral: true } })
     const run = await starting
+    expect(spawn.mock.calls[0]?.[0].env).toMatchObject({
+      HTTP_PROXY: undefined,
+      NO_PROXY: 'localhost',
+    })
     await child.peer.nextMethod('turn/start')
     controller.abort(new Error('ceiling test complete'))
     await expect(run.result).resolves.toMatchObject({ stopReason: 'aborted' })

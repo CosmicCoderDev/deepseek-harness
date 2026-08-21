@@ -141,6 +141,18 @@ export type SubagentPermissionCeiling = (
   request: SubagentPermissionRequest,
 ) => SubagentPermissionTier
 
+/** Facts available to deployment-owned child-environment policies at provider start. */
+export interface SubagentEnvironmentRequest {
+  readonly provider: string
+  readonly cwd: string
+  readonly environment: Readonly<NodeJS.ProcessEnv>
+}
+
+/** Deployment policy that projects explicit child entries and deletion tombstones. */
+export type SubagentEnvironmentPolicy = (
+  request: SubagentEnvironmentRequest,
+) => NodeJS.ProcessEnv
+
 const SUBAGENT_PERMISSION_RANK: Readonly<Record<SubagentPermissionTier, number>> = {
   'read-only': 0,
   'project-development': 1,
@@ -192,6 +204,7 @@ declare module '@deepseek-ai/cordis' {
 export class SubagentRuntime extends Service {
   private providers = new Map<string, SubagentProvider>()
   private readonly permissionCeilings = new Set<SubagentPermissionCeiling>()
+  private readonly environmentPolicies = new Set<SubagentEnvironmentPolicy>()
   private continuations: SubagentContinuationManager | undefined
   /** Deployment contributions composed into unpublished continuable children. */
   private readonly setupRegistry = new SubagentActivationSetupRegistry()
@@ -459,6 +472,37 @@ export class SubagentRuntime extends Service {
       effective = resolved
     }
     return effective
+  }
+
+  /**
+   * Register a deployment-owned environment policy evaluated immediately
+   * before an out-of-process provider starts.
+   * @param policy - synchronous projection receiving provider, cwd, and current overlay.
+   * @returns the exact Cordis effect disposer.
+   */
+  registerEnvironmentPolicy(policy: SubagentEnvironmentPolicy): () => void {
+    return this.ctx.effect(
+      () => {
+        this.environmentPolicies.add(policy)
+        return () => { this.environmentPolicies.delete(policy) }
+      },
+      'subagents.registerEnvironmentPolicy()',
+    )
+  }
+
+  /**
+   * Resolve explicit child environment entries. Policies compose in
+   * registration order; `undefined` values remain deletion tombstones for the
+   * shared subprocess seam.
+   * @param request - provider, canonical working directory, and configured overlay.
+   * @returns a detached environment overlay safe for provider-specific mutation.
+   */
+  resolveEnvironment(request: SubagentEnvironmentRequest): NodeJS.ProcessEnv {
+    let environment: NodeJS.ProcessEnv = { ...request.environment }
+    for (const policy of this.environmentPolicies) {
+      environment = { ...policy({ ...request, environment }) }
+    }
+    return environment
   }
 
   /**

@@ -45,6 +45,7 @@ import { ensureDesktopPreset } from './desktop-preset.ts'
 import {
   applyProxySettings,
   formatProxySnapshot,
+  projectProxyEnvironment,
   type ProxySnapshot,
 } from './proxy-settings.ts'
 import { formatConnectivityResults, testProviderConnectivity } from './connectivity.ts'
@@ -61,6 +62,7 @@ import {
   projectExecutionMode,
   readProjectPolicies,
   resolveProjectPermissionCap,
+  resolveProjectPolicy,
   validateProjectPolicy,
   writeProjectPolicies,
   type DesktopProjectPolicy,
@@ -102,6 +104,16 @@ const activeRequests = new Map<string, { controller: AbortController; url: strin
 
 function projectPermissionCap(cwd: string): DesktopProjectPolicy['permissionCap'] | undefined {
   return resolveProjectPermissionCap(projectPolicies, cwd)
+}
+
+function projectEnvironment(cwd: string, environment: Readonly<NodeJS.ProcessEnv>): NodeJS.ProcessEnv {
+  const policy = resolveProjectPolicy(projectPolicies, cwd)
+  if (policy === undefined) return { ...environment }
+  return projectProxyEnvironment(
+    policy.network === 'deny' ? { mode: 'direct' } : policy.proxy,
+    proxySnapshot.environment,
+    environment,
+  )
 }
 
 function installApplicationMenu(): void {
@@ -619,7 +631,7 @@ async function restartDesktopHost(): Promise<void> {
     recordDesktopDiagnostic('info', 'desktop Host restart requested')
     await stopHost()
     applySubagentPermission(desktopSettings.subagentPermission)
-    host = await startDesktopHost(projectPermissionCap)
+    host = await startDesktopHost(projectPermissionCap, projectEnvironment)
     restartRequired = false
     await openDesktop(false)
     recordDesktopDiagnostic('info', 'desktop Host restarted')
@@ -629,7 +641,7 @@ async function restartDesktopHost(): Promise<void> {
     desktopSettings = safe
     await writeDesktopSettings(proxyHome, safe)
     applySubagentPermission('read-only')
-    host = await startDesktopHost(projectPermissionCap).catch((recoveryError: unknown) => {
+    host = await startDesktopHost(projectPermissionCap, projectEnvironment).catch((recoveryError: unknown) => {
       recordDesktopDiagnostic('error', 'desktop Host safe recovery failed', recoveryError)
       return undefined
     })
@@ -805,7 +817,7 @@ if (!ownsInstance) {
     if (await ensureDesktopPreset(join(app.getAppPath(), 'config'), dshHome)) {
       recordDesktopDiagnostic('info', 'desktop Codex + Claude Code preset installed')
     }
-    host = await startDesktopHost(projectPermissionCap)
+    host = await startDesktopHost(projectPermissionCap, projectEnvironment)
     recordDesktopDiagnostic('info', 'in-process Host started')
     installIpc()
     installPluginProtocol()

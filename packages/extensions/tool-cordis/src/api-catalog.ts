@@ -1772,6 +1772,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the most restrictive valid tier selected by all ceilings.',
       },
       {
+        signature: 'registerEnvironmentPolicy(policy: SubagentEnvironmentPolicy): () => void',
+        description: 'Register a deployment-owned environment policy evaluated immediately before an out-of-process provider starts.',
+        parameters: [{ name: 'policy', description: 'synchronous projection receiving provider, cwd, and current overlay.' }],
+        returns: 'the exact Cordis effect disposer.',
+      },
+      {
+        signature: 'resolveEnvironment(request: SubagentEnvironmentRequest): NodeJS.ProcessEnv',
+        description: 'Resolve explicit child environment entries. Policies compose in registration order; `undefined` values remain deletion tombstones for the shared subprocess seam.',
+        parameters: [{ name: 'request', description: 'provider, canonical working directory, and configured overlay.' }],
+        returns: 'a detached environment overlay safe for provider-specific mutation.',
+      },
+      {
         signature: 'getProvider(name: string): SubagentProvider | undefined',
         description: 'Look up a provider by name.',
         parameters: [{ name: 'name', description: 'the provider name.' }],
@@ -4265,6 +4277,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type SubagentDescriptorData = OneShotSubagentDescriptorData | ContinuableSubagentDescriptorData;',
   },
   {
+    name: 'SubagentEnvironmentPolicy',
+    declaration: 'export type SubagentEnvironmentPolicy = (request: SubagentEnvironmentRequest) => NodeJS.ProcessEnv;',
+  },
+  {
+    name: 'SubagentEnvironmentRequest',
+    declaration: 'export interface SubagentEnvironmentRequest {\n    readonly provider: string;\n    readonly cwd: string;\n    readonly environment: Readonly<NodeJS.ProcessEnv>;\n}',
+  },
+  {
     name: 'SubagentFollowupOptions',
     declaration: 'export interface SubagentFollowupOptions {\n    readonly source: MessageSource;\n    readonly signal: AbortSignal;\n}',
   },
@@ -4318,7 +4338,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubagentRuntime',
-    declaration: 'export class SubagentRuntime extends Service {\n    constructor(ctx: Context);\n    async startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart>;\n    async followup(parent: Agent, childId: SessionId, content: ContentBlock[], options: SubagentFollowupOptions): Promise<MessageId>;\n    interrupt(targetSessionId: SessionId, authority: SubagentInterruptAuthority): void;\n    async reportFrom(child: Agent, content: ContentBlock[], options: SubagentReportOptions): Promise<MessageId>;\n    registerContinuableSetup(contribution: ContinuableSetupContribution): () => void;\n    async drainContinuableDescendants(parents: readonly Agent[]): Promise<void>;\n    async drainContinuableChildren(parent: Agent, childIds: readonly SessionId[]): Promise<void>;\n    listChildren(parentSessionId: SessionId, signal?: AbortSignal): Promise<SubagentListEntry[]>;\n    listDescendants(rootSessionId: SessionId, signal?: AbortSignal): Promise<SubagentDescendantListEntry[]>;\n    registerProvider(provider: SubagentProvider): () => void;\n    registerPermissionCeiling(ceiling: SubagentPermissionCeiling): () => void;\n    resolvePermissionTier(request: SubagentPermissionRequest): SubagentPermissionTier;\n    getProvider(name: string): SubagentProvider | undefined;\n    list(): string[];\n    async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>;\n}',
+    declaration: 'export class SubagentRuntime extends Service {\n    constructor(ctx: Context);\n    async startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart>;\n    async followup(parent: Agent, childId: SessionId, content: ContentBlock[], options: SubagentFollowupOptions): Promise<MessageId>;\n    interrupt(targetSessionId: SessionId, authority: SubagentInterruptAuthority): void;\n    async reportFrom(child: Agent, content: ContentBlock[], options: SubagentReportOptions): Promise<MessageId>;\n    registerContinuableSetup(contribution: ContinuableSetupContribution): () => void;\n    async drainContinuableDescendants(parents: readonly Agent[]): Promise<void>;\n    async drainContinuableChildren(parent: Agent, childIds: readonly SessionId[]): Promise<void>;\n    listChildren(parentSessionId: SessionId, signal?: AbortSignal): Promise<SubagentListEntry[]>;\n    listDescendants(rootSessionId: SessionId, signal?: AbortSignal): Promise<SubagentDescendantListEntry[]>;\n    registerProvider(provider: SubagentProvider): () => void;\n    registerPermissionCeiling(ceiling: SubagentPermissionCeiling): () => void;\n    resolvePermissionTier(request: SubagentPermissionRequest): SubagentPermissionTier;\n    registerEnvironmentPolicy(policy: SubagentEnvironmentPolicy): () => void;\n    resolveEnvironment(request: SubagentEnvironmentRequest): NodeJS.ProcessEnv;\n    getProvider(name: string): SubagentProvider | undefined;\n    list(): string[];\n    async start(name: string, request: SubagentStartRequest): P /* …truncated — full shape in source */',
   },
   {
     name: 'SubagentStartRequest',

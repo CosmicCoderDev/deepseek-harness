@@ -127,6 +127,36 @@ describe('SubagentRuntime', () => {
     }
   })
 
+  it('composes child environment policies and preserves deletion tombstones', async () => {
+    const { subagents } = await service()
+    const dispose = subagents.registerEnvironmentPolicy(request => ({
+      ...request.environment,
+      HTTP_PROXY: undefined,
+      NO_PROXY: 'localhost',
+    }))
+    subagents.registerEnvironmentPolicy(request => ({
+      ...request.environment,
+      PROVIDER: request.provider,
+      CWD: request.cwd,
+    }))
+
+    expect(subagents.resolveEnvironment({
+      provider: 'codex',
+      cwd: '/workspace',
+      environment: { HTTP_PROXY: 'http://old:1', TOKEN: 'kept' },
+    })).toEqual({
+      HTTP_PROXY: undefined,
+      NO_PROXY: 'localhost',
+      TOKEN: 'kept',
+      PROVIDER: 'codex',
+      CWD: '/workspace',
+    })
+    dispose()
+    expect(subagents.resolveEnvironment({
+      provider: 'claude-code', cwd: '/other', environment: { TOKEN: 'kept' },
+    })).toEqual({ TOKEN: 'kept', PROVIDER: 'claude-code', CWD: '/other' })
+  })
+
   it('rolls registration back when provider-added throws', async () => {
     const { ctx, subagents } = await service()
     ctx.on('subagent/provider-added', () => { throw new Error('added boom') })

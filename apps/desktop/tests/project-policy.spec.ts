@@ -7,6 +7,7 @@ import {
   projectExecutionMode,
   readProjectPolicies,
   resolveProjectPermissionCap,
+  resolveProjectPolicy,
   validateProjectPolicy,
   writeProjectPolicies,
   type DesktopProjectPolicy,
@@ -56,6 +57,8 @@ describe('desktop project policies', () => {
     expect(resolveProjectPermissionCap(policies, '/workspace/source')).toBe('project-development')
     expect(resolveProjectPermissionCap(policies, '/workspace/restricted/source')).toBe('read-only')
     expect(resolveProjectPermissionCap(policies, '/unconfigured')).toBeUndefined()
+    expect(resolveProjectPolicy(policies, '/workspace/restricted/source')).toBe(nested)
+    expect(resolveProjectPolicy(policies, '/unconfigured')).toBeUndefined()
   })
 
   it('rejects credentials and write roots outside the read boundary', () => {

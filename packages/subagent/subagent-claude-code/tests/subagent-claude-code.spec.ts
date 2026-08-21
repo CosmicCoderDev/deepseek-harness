@@ -611,6 +611,11 @@ describe('task admission and package contracts', () => {
     const child = fakeChild()
     vi.spyOn(ctx.subprocess, 'spawn').mockReturnValue(child.handle)
     ctx.subagents.registerPermissionCeiling(({ cwd }) => cwd === process.cwd() ? 'read-only' : 'full-access')
+    ctx.subagents.registerEnvironmentPolicy(request => ({
+      ...request.environment,
+      HTTP_PROXY: undefined,
+      NO_PROXY: 'localhost',
+    }))
     await ctx.plugin(claudeCode, { permissionMode: 'bypassPermissions' })
     queryMock.mockImplementationOnce(({ options }) => {
       options.spawnClaudeCodeProcess!(sdkSpawnOptions({
@@ -626,6 +631,8 @@ describe('task admission and package contracts', () => {
       stopReason: 'completed',
     })
     expect(queryMock.mock.calls.at(-1)?.[0].options.permissionMode).toBe('plan')
+    expect(queryMock.mock.calls.at(-1)?.[0].options.env?.HTTP_PROXY).toBeUndefined()
+    expect(queryMock.mock.calls.at(-1)?.[0].options.env?.NO_PROXY).toBe('localhost')
     await run.dispose()
     await ctx.fiber.dispose()
   })

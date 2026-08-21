@@ -24,6 +24,7 @@ const DESKTOP_PATCH = fileURLToPath(new URL('../config/desktop.patch.yml', impor
 /** Boot the stock Web composition with its physical Web carrier replaced by Electron IPC. */
 export async function startDesktopHost(
   permissionCap?: (cwd: string) => SubagentPermissionTier | undefined,
+  environmentPolicy?: (cwd: string, environment: Readonly<NodeJS.ProcessEnv>) => NodeJS.ProcessEnv,
 ): Promise<DesktopHost> {
   const { ctx } = await runProfile({
     environment: loadLayeredEnv('dsh'),
@@ -36,13 +37,21 @@ export async function startDesktopHost(
     bareModuleBaseUrl: import.meta.url,
   })
   try {
-    if (permissionCap !== undefined) {
+    if (permissionCap !== undefined || environmentPolicy !== undefined) {
       const subagents = required(ctx, 'subagents') as {
         registerPermissionCeiling(
           ceiling: (request: { readonly cwd: string; readonly requested: SubagentPermissionTier }) => SubagentPermissionTier,
         ): () => void
+        registerEnvironmentPolicy(
+          policy: (request: { readonly cwd: string; readonly environment: Readonly<NodeJS.ProcessEnv> }) => NodeJS.ProcessEnv,
+        ): () => void
       }
-      subagents.registerPermissionCeiling(request => permissionCap(request.cwd) ?? request.requested)
+      if (permissionCap !== undefined) {
+        subagents.registerPermissionCeiling(request => permissionCap(request.cwd) ?? request.requested)
+      }
+      if (environmentPolicy !== undefined) {
+        subagents.registerEnvironmentPolicy(request => environmentPolicy(request.cwd, request.environment))
+      }
     }
     const apiProxy = required(ctx, 'apiProxy') as Parameters<typeof toFetchHandler>[0]
     const connection = required(ctx, 'connection') as HostConnectionHandle

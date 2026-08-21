@@ -43,13 +43,21 @@ export function resolveProjectPermissionCap(
   policies: ReadonlyMap<string, DesktopProjectPolicy>,
   cwd: string,
 ): SubagentPermission | undefined {
+  return resolveProjectPolicy(policies, cwd)?.permissionCap
+}
+
+/** Resolve the most specific configured policy containing a task cwd. */
+export function resolveProjectPolicy(
+  policies: ReadonlyMap<string, DesktopProjectPolicy>,
+  cwd: string,
+): DesktopProjectPolicy | undefined {
   const normalizedCwd = normalizeRoot(cwd)
   let selected: DesktopProjectPolicy | undefined
   for (const policy of policies.values()) {
     if (!isWithin(policy.projectRoot, normalizedCwd)) continue
     if (selected === undefined || policy.projectRoot.length > selected.projectRoot.length) selected = policy
   }
-  return selected?.permissionCap
+  return selected
 }
 
 const POLICY_FILE = 'desktop-project-policies.json'

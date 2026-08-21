@@ -97,7 +97,11 @@ class CodexProvider implements SubagentProvider {
         cwd,
         requested: permissionTierForMode(this.config.permissionMode),
       })),
-      env: this.config.env,
+      env: this.ctx.subagents.resolveEnvironment({
+        provider: this.name,
+        cwd,
+        environment: this.config.env,
+      }),
       disposeGraceMs: this.config.disposeGraceMs,
       spawn: spawnSpec => this.ctx.subprocess.spawn(spawnSpec),
       onError: (error, stopReason) => {

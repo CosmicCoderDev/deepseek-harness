@@ -9,6 +9,7 @@ import {
   replaceProxyEnvironment,
   type ProxyEnvironment,
 } from './system-proxy.ts'
+import type { ProjectProxyPolicy } from './project-policy.ts'
 
 export type ProxyMode = 'system' | 'manual' | 'direct'
 
@@ -58,6 +59,42 @@ export function applyProxySettings(
       ? manualEnvironment(validateProxyUrl(settings.url ?? ''))
       : {}
   return { settings, environment: replaceProxyEnvironment(selected, environment) }
+}
+
+const PROXY_KEYS = [
+  'HTTP_PROXY', 'http_proxy', 'HTTPS_PROXY', 'https_proxy',
+  'ALL_PROXY', 'all_proxy', 'NO_PROXY', 'no_proxy',
+] as const
+
+/**
+ * Project one project's proxy choice over a child environment. Missing proxy
+ * values become explicit tombstones, so direct mode cannot inherit the
+ * desktop process proxy. The system reader is injectable for tests.
+ */
+export function projectProxyEnvironment(
+  policy: ProjectProxyPolicy,
+  inherited: Readonly<ProxyEnvironment>,
+  environment: Readonly<NodeJS.ProcessEnv>,
+  systemProxy: () => ProxyEnvironment = readSystemProxy,
+): NodeJS.ProcessEnv {
+  const selected = policy.mode === 'inherit'
+    ? inherited
+    : policy.mode === 'system'
+      ? systemProxy()
+      : policy.mode === 'manual'
+        ? manualEnvironment(validateProxyUrl(policy.url))
+        : {}
+  const result: NodeJS.ProcessEnv = { ...environment }
+  for (const key of PROXY_KEYS) result[key] = undefined
+  for (const upper of ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY'] as const) {
+    const value = selected[upper]
+    if (value === undefined) continue
+    result[upper] = value
+    result[upper.toLowerCase()] = value
+  }
+  result.NO_PROXY = LOCAL_PROXY_BYPASS
+  result.no_proxy = LOCAL_PROXY_BYPASS
+  return result
 }
 
 /** Render a credential-free summary for settings and diagnostics. */
