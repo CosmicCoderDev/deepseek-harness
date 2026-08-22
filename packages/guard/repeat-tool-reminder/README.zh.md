@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-这是一个仅提供建议的循环中断器，而非面向模型的工具：它不会出现在工具列表中，不会否决或改写调用，只增加一种行为。它监视每个 agent（智能体）的工具调用流，统计以完全相同的规范化参数连续调用同一工具的次数；达到所配置的连续次数时，它会注入逐级增强的提示，要求模型停止重复、重新阅读上一次结果，并改用其他方案或结束任务。究竟是换一种方式重试、收集更多证据还是完成任务，仍完全由模型决定：合理的重复调用既不会延迟，也不会受阻。决策记录见 [repeat-tool-reminder Agent Note](../../../.agents/notes/archived/feature/2026-07-08-repeat-tool-guard.md)。
+这是一个仅提供建议的工具调用后 guard，而非面向模型的工具：它不会出现在工具列表中，也不会否决或改写调用。默认行为会监视每个 agent（智能体）的工具调用流，统计以完全相同的规范化参数连续调用同一工具的次数，并在达到阈值时注入逐级增强的提醒。部署还可选择启用本机证据约束：每轮用户请求中，首个匹配工具成功后会告诉模型，该结果是直接观察证据，不能再用“我无法访问这台机器”之类的通用免责声明否定它。两种行为都只提供建议并写入日志。决策记录见 [repeat-tool-reminder Agent Note](../../../.agents/notes/archived/feature/2026-07-08-repeat-tool-guard.md) 和[桌面本机工具证据约束](../../../.agents/notes/implemented/bug-fix/2026-08-22-desktop-local-tool-grounding.md)。
 
 ## 配置
 
@@ -14,11 +14,14 @@
     include: []                  # tool-name patterns to track; empty ⇒ all tools
     exclude: [todo_write]        # tool-name patterns transparent to the chain
     argumentsPreviewChars: 500   # default; cap on arguments quoted in the detailed reminder
+    evidenceInclude: []          # successful tool patterns that establish direct local evidence
 ```
 
 插件加载时，`thresholds` 会对错误配置快速失败：空列表、非整数、小于 2 的值或重复值都会抛出错误，绝不静默回退到默认值；`argumentsPreviewChars` 同样只接受大于等于 1 的整数。系统会将列表按升序规范化；第一个阈值只发送简短的通用提醒，后续每个阈值都会发送详细版本，列出工具、连续次数和规范参数。参数内容截取前 `argumentsPreviewChars` 个字符，并附带省略字符数标记，避免循环中的 `write`／`edit` 载荷无限制进入下一次请求（链键始终比较完整的规范字符串；此上限只约束提醒，不影响检测）。
 
 `include`／`exclude` 条目支持 `*` 通配符，并针对调用时实际存在的工具执行谓词判断，而不是引用注册表条目。因此，与当前任何已注册工具都不匹配的模式并非错误（未加载 MCP 工具的部署中，`exclude: [mcp_*]` 仍然有效）；这与 `toolOrder` 的引用目标检查不同。
+
+`evidenceInclude` 使用相同的通配符规则，默认为空，因此原有仅检测循环的行为保持不变。启用后，只有带活跃 agent 的匹配工具成功执行才会产生证据约束，并且每轮用户请求最多一次。它不会授予权限、不会把失败改成成功，也不会推断工具结果没有证明的事实。
 
 ## 链语义
 
@@ -34,7 +37,13 @@
 
 提醒通过 post-execute 决策中的 `additionalContexts`（来源为 `{kind: 'plugin', plugin: 'repeat-tool-reminder'}`）传递，绝不替换 `content`；用于审计的 `tool/result` 事件仍保留工具自己的输出。循环会缓冲这段上下文，并在该步骤的工具结果之后将其作为注入的 `user/message` 追加；会话会将它渲染为普通的合成用户消息。因此，提醒对模型可见、带有来源归属，并且无需增加会话事件即可从会话日志重建。guard 始终通过 `next()` 委派，并将自己的提醒放在下游决策的上下文数组之前（两种结果都适用：被阻止的调用也会收到提醒）；每个条目保留自己的来源和元数据。
 
+可选证据提醒使用同一传递路径，并携带 `<tool>: local evidence` 摘要。失败或被拒绝的执行绝不会生成该提醒。
+
 ## 模型体验
+
+### 成功的本机证据上下文消息
+
+配置 `evidenceInclude` 后，每轮用户请求中首个匹配成功会增加一条有界提醒，说明紧邻其前的工具结果来自真实运行环境。它要求模型只陈述结果能够证明的内容，需要时继续收集证据，并在后续失败时报告精确错误，而不是用通用免责声明抹掉已经成功取得的证据。
 
 ### 首个阈值的上下文消息
 
@@ -88,3 +97,4 @@ The repeated calls are not making progress. Do not call this tool with these exa
 - **subagent 之间不共享链**：链始终按 agent 隔离；即使父 agent 与其 subagent 重复相同调用，也不会合并计数。
 - **合理的幂等轮询超过阈值后仍会收到提醒**：可通过 `thresholds`／`exclude` 配置释放压力。
 - **超过最高阈值后链不再提醒**：提醒只在精确达到所配置的次数时触发，超过后不会继续发送。
+- **证据约束仍是建议**：它不会机械地阻止所有幻觉；产品预设还应配套明确的工具能力 persona 和行为测试。

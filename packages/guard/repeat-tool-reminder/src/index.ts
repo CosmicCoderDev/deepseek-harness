@@ -40,6 +40,13 @@ export interface Config {
    * always compares the FULL canonical string).
    */
   argumentsPreviewChars?: number
+  /**
+   * Successful tool-name patterns that establish direct environment evidence.
+   * The first matching success in each user turn adds a model-visible reminder
+   * that the result came from the local runtime and must not be contradicted.
+   * Empty (the default) disables this desktop-oriented behavior.
+   */
+  evidenceInclude?: string[]
 }
 
 export const Config: z<Config> = z.object({
@@ -47,6 +54,7 @@ export const Config: z<Config> = z.object({
   include: z.array(z.string()).default([]),
   exclude: z.array(z.string()).default([]),
   argumentsPreviewChars: z.number().default(500),
+  evidenceInclude: z.array(z.string()).default([]),
 })
 
 /**
@@ -65,6 +73,14 @@ const GENTLE_REMINDER =
   + 'Carefully analyze the previous result before calling again: if the task is '
   + 'not complete, try a different approach or different arguments instead of '
   + 'repeating the call.'
+
+/** Ground local-model answers in a successful environment observation. */
+function evidenceReminder(toolName: string): string {
+  return 'Local environment evidence is available from the successful tool result immediately above. '
+    + `The ${toolName} tool executed against the user's actual machine or workspace under the current permission mode. `
+    + 'Treat that result as direct observed evidence. Do not claim that you cannot inspect, access, or run tools on the local machine. '
+    + 'State only what the tool result proves; if more evidence is needed, call an available tool. If a later tool fails, report its exact failure instead of replacing prior successful evidence with a generic capability disclaimer.'
+}
 
 /** The detailed later-threshold reminder naming the tool, the run length, and the canonical arguments. */
 function detailedReminder(toolName: string, count: number, canonicalArguments: string): string {
@@ -140,14 +156,6 @@ function validateThresholds(values: number[]): number[] {
   return [...values].sort((a, b) => a - b)
 }
 
-/**
- * Prepend the guard's reminder while preserving every downstream context's
- * source and metadata.
- */
-function prependContext(ours: UserMessage, theirs: UserMessage[] | undefined): UserMessage[] {
-  return [ours, ...theirs ?? []]
-}
-
 /** One agent's consecutive-repeat chain: the last tracked call's identity key and its run length. */
 interface Chain {
   key: string
@@ -165,12 +173,14 @@ export function apply(ctx: Context, config: Config): void {
   const thresholdSet = new Set(thresholds)
   const includePatterns = (config.include as string[]).map(wildcardToRegExp)
   const excludePatterns = (config.exclude as string[]).map(wildcardToRegExp)
+  const evidencePatterns = (config.evidenceInclude as string[]).map(wildcardToRegExp)
   const argumentsPreviewChars = config.argumentsPreviewChars as number
   if (!Number.isInteger(argumentsPreviewChars) || argumentsPreviewChars < 1) {
     throw new Error(`repeat-tool-reminder: invalid argumentsPreviewChars ${argumentsPreviewChars} — must be an integer >= 1`)
   }
 
   const chains = new WeakMap<Agent, Chain>()
+  const evidenceDelivered = new WeakSet<Agent>()
 
   /** Whether a tool participates in the chain (untracked calls are transparent: they neither count nor reset). */
   function tracked(toolName: string): boolean {
@@ -206,20 +216,34 @@ export function apply(ctx: Context, config: Config): void {
     })
   }
 
+  /** Attach one grounding reminder after the first matching success in a user turn. */
+  function observeEvidence(exec: ToolExecution, isError: boolean): UserMessage | undefined {
+    if (isError || !exec.agent || evidenceDelivered.has(exec.agent)) return undefined
+    if (!evidencePatterns.some(pattern => pattern.test(exec.name))) return undefined
+    evidenceDelivered.add(exec.agent)
+    return createUserMessage({
+      content: [{ type: 'text', text: evidenceReminder(exec.name) }],
+      source: { ...PLUGIN_SOURCE, form: 'notice', summary: `${exec.name}: local evidence` },
+    })
+  }
+
   // Observe-and-enrich, never veto: count first (state advances regardless of
   // the downstream outcome), DELEGATE so a later listener can still block or
   // replace, then fold the reminder onto whatever came back — additionalContexts
   // rides both decision variants, so a blocked call still gets the nudge.
-  ctx.on('tools/post-execute', async (exec, _result, next): Promise<PostToolDecision> => {
+  ctx.on('tools/post-execute', async (exec, result, next): Promise<PostToolDecision> => {
     const reminder = observe(exec)
+    const evidence = observeEvidence(exec, result.isError)
     const downstream = await next()
-    if (!reminder) return downstream
+    const contexts = [reminder, evidence].filter((message): message is UserMessage => message !== undefined)
+    if (contexts.length === 0) return downstream
+    const additionalContexts = [...contexts, ...downstream.additionalContexts ?? []]
     if (downstream.kind === 'block') {
-      return { kind: 'block', feedback: downstream.feedback, additionalContexts: prependContext(reminder, downstream.additionalContexts) }
+      return { kind: 'block', feedback: downstream.feedback, additionalContexts }
     }
     return {
       ...downstream,
-      additionalContexts: prependContext(reminder, downstream.additionalContexts),
+      additionalContexts,
     }
   })
 
@@ -227,7 +251,10 @@ export function apply(ctx: Context, config: Config): void {
   // loop. Pure reset hook: always delegates (attaching nothing, vetoing
   // nothing).
   ctx.on('agent/pre-step', ({ agent, messages }, next): Promise<PreStepDecision> => {
-    if (messages.some(message => message.source.kind === 'user')) chains.delete(agent)
+    if (messages.some(message => message.source.kind === 'user')) {
+      chains.delete(agent)
+      evidenceDelivered.delete(agent)
+    }
     return next()
   })
 }

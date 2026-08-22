@@ -94,6 +94,46 @@ describe('threshold escalation', () => {
   })
 })
 
+describe('local evidence grounding', () => {
+  it('adds one logged reminder after the first successful matching tool in a user turn', async () => {
+    const ctx = await harness({ evidenceInclude: ['probe', 'fs_*'] })
+    const adapter = new MockAdapter([
+      toolCallResponse('c1', 'probe', {}),
+      toolCallResponse('c2', 'other', {}),
+      textResponse('done'),
+    ])
+    ctx.llm.registerAdapter(['mock'], adapter)
+    const agent = ctx.agentLoop.create(SessionId('evidence'), { provider: 'mock', model: 'mock' })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'inspect my machine' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+
+    const found = reminders(agent)
+    expect(found).toHaveLength(1)
+    expect(found[0]!.text).toContain('actual machine or workspace')
+    expect(found[0]!.text).toContain('Do not claim that you cannot inspect')
+    expect(found[0]!.source).toEqual({
+      kind: 'plugin',
+      plugin: 'repeat-tool-reminder',
+      form: 'notice',
+      summary: 'probe: local evidence',
+    })
+  })
+
+  it('does not describe a failed tool execution as successful local evidence', async () => {
+    const ctx = await harness({ evidenceInclude: ['missing'] })
+    const adapter = new MockAdapter([
+      toolCallResponse('c1', 'missing', {}),
+      textResponse('done'),
+    ])
+    ctx.llm.registerAdapter(['mock'], adapter)
+    const agent = ctx.agentLoop.create(SessionId('failed-evidence'), { provider: 'mock', model: 'mock' })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'inspect' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+
+    expect(reminders(agent)).toHaveLength(0)
+  })
+})
+
 describe('chain semantics', () => {
   it('caps the detailed reminder arguments at argumentsPreviewChars (detection still keys on the full string)', async () => {
     const ctx = await harness({ thresholds: [2, 3], argumentsPreviewChars: 24 })

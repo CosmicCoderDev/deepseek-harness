@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-An advisory loop-breaker, not a model-facing tool: it never appears in the tool list, never vetoes or rewrites a call, and adds exactly one behavior — it watches each agent's stream of tool calls, counts runs of consecutive calls to the same tool with identical canonicalized arguments, and at configured run lengths injects an escalating advisory reminder telling the model to stop repeating itself, re-read the last result, and either change approach or conclude. The decision (retry differently, gather more evidence, or finish) stays entirely with the model: a legitimately repeated call is delayed by nothing and blocked by nothing. Decision record: [the repeat-tool-reminder Agent Note](../../../.agents/notes/archived/feature/2026-07-08-repeat-tool-guard.md).
+An advisory post-tool guard, not a model-facing tool: it never appears in the tool list and never vetoes or rewrites a call. Its default behavior watches each agent's stream of tool calls, counts runs of consecutive calls to the same tool with identical canonicalized arguments, and at configured run lengths injects an escalating advisory reminder. Deployments may also opt successful tools into local-evidence grounding: the first matching success in a user turn tells the model that the result is a direct observation and must not be contradicted by a generic “I cannot access the machine” disclaimer. Both behaviors remain advisory and logged. Decision records: [the repeat-tool-reminder Agent Note](../../../.agents/notes/archived/feature/2026-07-08-repeat-tool-guard.md) and [desktop local-tool grounding](../../../.agents/notes/implemented/bug-fix/2026-08-22-desktop-local-tool-grounding.md).
 
 ## Config
 
@@ -14,11 +14,14 @@ An advisory loop-breaker, not a model-facing tool: it never appears in the tool 
     include: []                  # tool-name patterns to track; empty ⇒ all tools
     exclude: [todo_write]        # tool-name patterns transparent to the chain
     argumentsPreviewChars: 500   # default; cap on arguments quoted in the detailed reminder
+    evidenceInclude: []          # successful tool patterns that establish direct local evidence
 ```
 
 `thresholds` fails loud at plugin load: an empty list, a non-integer, a value below 2, or a duplicate throws, never a silent fall-back to defaults; `argumentsPreviewChars` equally rejects anything but an integer >= 1. The list is normalized to ascending order; the FIRST threshold delivers a short generic nudge, every later threshold delivers the detailed form naming the tool, the run length, and the canonical arguments — head-truncated at `argumentsPreviewChars` with an omitted-count marker, so a looping `write`/`edit` payload cannot ride into the next request unbounded (the chain key always compares the FULL canonical string; the cap bounds the reminder, never the detection).
 
 `include`/`exclude` entries support `*` wildcards and are predicates over whatever tools exist at call time, not references to registry entries — a pattern matching no currently registered tool is NOT an error (`exclude: [mcp_*]` stays valid in a deployment that loads no MCP tools), unlike `toolOrder`'s referent check.
+
+`evidenceInclude` uses the same wildcard rules and defaults to empty, preserving the loop-only package behavior. When enabled, only a successful matching execution with a live agent emits the grounding context, at most once per user turn. It does not grant authority, convert failures to successes, or infer facts beyond the tool result.
 
 ## Chain semantics
 
@@ -34,7 +37,13 @@ The chain key is `(tool name, canonical arguments)` — canonicalization is a de
 
 Reminders ride the post-execute decision's `additionalContexts` (source `{kind: 'plugin', plugin: 'repeat-tool-reminder'}`), never a `content` replacement: the `tool/result` event stays the tool's own output for audit. The loop buffers the context and appends it as an injected `user/message` after the step's tool results, which the session renders as a plain synthetic user message — so the reminder is model-visible, source-attributed, and reconstructable from the session log with no new session event. The guard always delegates via `next()` and prepends its reminder to the downstream decision's context array (both variants — a blocked call still gets the nudge); every entry retains its own source and metadata.
 
+The optional evidence reminder uses the same delivery path and carries the notice summary `<tool>: local evidence`. A failed or denied execution never produces that notice.
+
 ## Model Experience
+
+### Successful local-evidence context message
+
+When configured through `evidenceInclude`, the first matching success in a user turn adds a bounded reminder that the preceding tool result came from the actual runtime. It tells the model to rely only on what the result proves, gather more evidence when needed, and report exact later failures instead of erasing successful evidence with a generic disclaimer.
 
 ### First-threshold context message
 
@@ -88,3 +97,4 @@ Append-only; newly visible content follows the reusable request prefix and does 
 - **No subagent chain-sharing** — chains stay isolated per agent; a parent and its subagent repeating the same call never combine.
 - **Legitimate idempotent polling still draws nudges** past the thresholds — the pressure valves are `thresholds`/`exclude` config.
 - **Past the highest threshold a chain goes silent** — reminders fire only at exact configured counts, never beyond them.
+- **Evidence grounding is advisory** — it prevents no hallucination mechanically; product presets should pair it with an explicit tool-capability persona and behavioral tests.

@@ -56,3 +56,13 @@
   config:
     search: false
     fetch: false
+
+# Local models sometimes call a desktop tool successfully and then fall back to
+# a generic "I cannot access your machine" disclaimer. Ground the next model
+# step in the first successful local observation of each user turn. This is an
+# advisory, logged context; it grants no permission and changes no tool result.
+- id: repeat-tool-reminder
+  config:
+    thresholds: [3, 5, 8]
+    argumentsPreviewChars: 500
+    evidenceInclude: [bash, pwsh, read, write, edit, glob, grep, fs_*]

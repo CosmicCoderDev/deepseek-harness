@@ -1582,6 +1582,13 @@ export interface Config {
    * always compares the FULL canonical string).
    */
   argumentsPreviewChars?: number
+  /**
+   * Successful tool-name patterns that establish direct environment evidence.
+   * The first matching success in each user turn adds a model-visible reminder
+   * that the result came from the local runtime and must not be contradicted.
+   * Empty (the default) disables this desktop-oriented behavior.
+   */
+  evidenceInclude?: string[]
 }
 ```
 
